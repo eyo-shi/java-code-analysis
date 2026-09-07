@@ -34,15 +34,48 @@ DEFAULT_ENV_VALUES: dict[str, str] = {
 
 SNAPSHOT_FILENAME = ".cml-project-env.json"
 
+_EVENT_MARKERS = ("dispatchConfig", "_dispatchListeners", "nativeEvent", "isTrusted")
+
 
 def _env(name: str, default: str | None = None) -> str | None:
     value = os.getenv(name)
+    ingested = _ingest_env_pair(name, value)
+    if ingested is not None:
+        return ingested
+    return default
+
+
+def _coerce_env_value(value: object) -> str | None:
+    """Convert CML project.environment values to plain strings."""
     if value is None:
-        return default
-    stripped = value.strip()
-    if not stripped:
-        return default
-    return stripped
+        return None
+    if isinstance(value, (dict, list, tuple)):
+        return None
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return str(value)
+    if not isinstance(value, str):
+        return None
+
+    text = value.strip()
+    if not text:
+        return None
+    if text.startswith("{") and any(marker in text for marker in _EVENT_MARKERS):
+        return None
+    return text
+
+
+def _validate_env_value(name: str, value: str) -> bool:
+    if name == "GIT_REPO_URL":
+        return value.startswith(("http://", "https://", "git@"))
+    if name == "NEO4J_URI":
+        return value.startswith(("bolt://", "neo4j://", "neo4j+s://", "neo4j+ssc://"))
+    if name == "GIT_REF":
+        return "{" not in value and "dispatchConfig" not in value and len(value) <= 256
+    if name == "SOURCE_PATH":
+        return "{" not in value
+    return "{" not in value or name in {"EXCLUDE_DIRS"}
 
 
 def _mask_value(name: str, value: str) -> str:
@@ -53,46 +86,69 @@ def _mask_value(name: str, value: str) -> str:
     return value
 
 
+def _ingest_env_pair(name: str, value: object) -> str | None:
+    text = _coerce_env_value(value)
+    if text is None:
+        return None
+    if not _validate_env_value(name, text):
+        return None
+    return text
+
+
 def _parse_project_environment(raw: object) -> dict[str, str]:
     """Normalize CML project.environment which may be a dict or JSON string."""
     if raw is None:
         return {}
+
+    parsed: dict[object, object]
     if isinstance(raw, dict):
-        return {str(key): str(value) for key, value in raw.items() if value is not None}
-
-    if not isinstance(raw, str):
+        parsed = raw
+    elif isinstance(raw, str):
+        text = raw.strip()
+        if not text:
+            return {}
+        try:
+            loaded = json.loads(text)
+            if not isinstance(loaded, dict):
+                parsed = {}
+            else:
+                parsed = loaded
+        except json.JSONDecodeError:
+            parsed = {}
+            result: dict[str, str] = {}
+            for line in text.splitlines():
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, _, value = line.partition("=")
+                key = key.strip()
+                ingested = _ingest_env_pair(key, value.strip())
+                if ingested is not None:
+                    result[key] = ingested
+            return result
+    else:
         return {}
-
-    text = raw.strip()
-    if not text:
-        return {}
-
-    try:
-        parsed = json.loads(text)
-        if isinstance(parsed, dict):
-            return {str(key): str(value) for key, value in parsed.items() if value is not None}
-    except json.JSONDecodeError:
-        pass
 
     result: dict[str, str] = {}
-    for line in text.splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, _, value = line.partition("=")
-        key = key.strip()
-        value = value.strip()
-        if key:
-            result[key] = value
+    for key, value in parsed.items():
+        ingested = _ingest_env_pair(str(key), value)
+        if ingested is not None:
+            result[str(key)] = ingested
     return result
 
 
 def _sanitize_empty_managed_env() -> None:
-    """Remove empty placeholders CML may inject for unset AMP configuration fields."""
+    """Remove empty or invalid placeholders from the process environment."""
     for key in MANAGED_ENV_VARS:
         value = os.environ.get(key)
-        if value is not None and not str(value).strip():
+        if value is None:
+            continue
+        ingested = _ingest_env_pair(key, value)
+        if ingested is None:
+            print(f"Warning: ignoring invalid {key} value from environment.")
             os.environ.pop(key, None)
+        elif ingested != value:
+            os.environ[key] = ingested
 
 
 def hydrate_environment_from_cml() -> int:
@@ -118,11 +174,9 @@ def hydrate_environment_from_cml() -> int:
         for key, value in project_env.items():
             if key not in MANAGED_ENV_VARS:
                 continue
-            text = str(value).strip()
-            if not text:
+            if not value:
                 continue
-            # Deploy Configuration in project settings is authoritative in CML.
-            os.environ[key] = text
+            os.environ[key] = value
             loaded += 1
         return loaded
     except Exception as exc:
@@ -152,14 +206,14 @@ def load_environment_snapshot() -> int:
         if not isinstance(data, dict):
             continue
         for key, value in data.items():
-            if key not in MANAGED_ENV_VARS or value is None:
+            if key not in MANAGED_ENV_VARS:
                 continue
-            text = str(value).strip()
-            if not text:
+            ingested = _ingest_env_pair(key, value)
+            if ingested is None:
                 continue
             current = os.environ.get(key)
             if current is None or not str(current).strip():
-                os.environ[key] = text
+                os.environ[key] = ingested
                 loaded += 1
         break
     return loaded
@@ -167,11 +221,11 @@ def load_environment_snapshot() -> int:
 
 def save_environment_snapshot() -> Path | None:
     """Persist managed environment variables for later sessions."""
-    values = {
-        key: os.environ[key]
-        for key in MANAGED_ENV_VARS
-        if os.environ.get(key) and str(os.environ[key]).strip()
-    }
+    values: dict[str, str] = {}
+    for key in MANAGED_ENV_VARS:
+        ingested = _ingest_env_pair(key, os.environ.get(key))
+        if ingested is not None:
+            values[key] = ingested
     if not values:
         return None
     path = Path.cwd() / SNAPSHOT_FILENAME
@@ -209,14 +263,18 @@ def diagnose_environment() -> None:
 
     for name in MANAGED_ENV_VARS:
         raw = os.environ.get(name)
-        if raw is None or not str(raw).strip():
+        ingested = _ingest_env_pair(name, raw) if raw is not None else None
+        if ingested is None:
+            if raw is not None and str(raw).strip():
+                print(f"  {name}: INVALID (ignored corrupted value)")
+                continue
             default = DEFAULT_ENV_VALUES.get(name)
             if default is not None:
                 print(f"  {name}: MISSING (will use default: {default})")
             else:
                 print(f"  {name}: MISSING")
             continue
-        print(f"  {name}: SET ({_mask_value(name, raw)})")
+        print(f"  {name}: SET ({_mask_value(name, ingested)})")
 
     cml_project_id = os.environ.get("CDSW_PROJECT_ID")
     print(f"  CDSW_PROJECT_ID: {cml_project_id or 'MISSING (not running inside CML)'}")
@@ -260,8 +318,9 @@ class Config:
         if not neo4j_uri:
             diagnose_environment()
             raise ValueError(
-                "NEO4J_URI is required. Set it in AMP Deploy Configuration or "
-                "Project Settings > Advanced > Environment Variables, then restart the session."
+                "NEO4J_URI is required. The AMP Deploy UI may not have saved your input. "
+                "Set NEO4J_URI in Project Settings > Advanced > Environment Variables "
+                "as a plain text value (e.g. bolt://host:7687), then restart the session."
             )
 
         source_path = _env("SOURCE_PATH")
@@ -271,7 +330,8 @@ class Config:
             diagnose_environment()
             raise ValueError(
                 "GIT_REPO_URL is required when SOURCE_PATH is not set. "
-                "Set GIT_REPO_URL in CML Configuration to the repository to analyze."
+                "Set GIT_REPO_URL in Project Settings > Advanced > Environment Variables "
+                "as a plain text URL, then restart the session."
             )
 
         if git_repo_url:

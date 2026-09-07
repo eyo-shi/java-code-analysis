@@ -9,7 +9,7 @@ description: |
 
 author: Cloudera Inc.
 specification_version: 1.0
-prototype_version: 1.1
+prototype_version: 1.2
 date: "2026-03-07"
 
 environment_variables:
@@ -77,15 +77,10 @@ tasks:
     kernel: python3
     cpu: 2
     memory: 4
-  - type: create_job
+  - type: run_session
     name: Analyze and Ingest
-    entity_label: analyze-ingest
     script: 1_session-analyze-ingest/analyze_ingest.py
     short_summary: Clone source, analyze Java code, and ingest graph into Neo4j
     kernel: python3
     cpu: 2
     memory: 4
-
-  - type: run_job
-    entity_label: analyze-ingest
-    short_summary: Run analysis and Neo4j ingestion
