@@ -14,20 +14,18 @@ date: "2026-03-07"
 
 environment_variables:
   GIT_REPO_URL:
-    default: ""
     description: |
       Git repository URL to clone and analyze.
       Required unless SOURCE_PATH is set. Update this value in Configuration to
       change the analysis target after deployment.
-    required: true
+    required: false
   GIT_REF:
     default: "main"
     description: "Git branch or tag to clone"
     required: false
   NEO4J_URI:
-    default: ""
     description: "Bolt URI of the target Neo4j instance (e.g. bolt://localhost:7687, neo4j+s://... for Aura)."
-    required: true
+    required: false
   NEO4J_USERNAME:
     default: "neo4j"
     description: "Neo4j username"
