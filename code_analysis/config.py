@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 from dataclasses import dataclass
@@ -31,6 +32,8 @@ DEFAULT_ENV_VALUES: dict[str, str] = {
     "EXCLUDE_DIRS": ".git,target,node_modules,venv,.venv,dist,build,__pycache__,.m2",
 }
 
+SNAPSHOT_FILENAME = ".cml-project-env.json"
+
 
 def _env(name: str, default: str | None = None) -> str | None:
     value = os.getenv(name)
@@ -50,8 +53,42 @@ def _mask_value(name: str, value: str) -> str:
     return value
 
 
+def _parse_project_environment(raw: object) -> dict[str, str]:
+    """Normalize CML project.environment which may be a dict or JSON string."""
+    if raw is None:
+        return {}
+    if isinstance(raw, dict):
+        return {str(key): str(value) for key, value in raw.items() if value is not None}
+
+    if not isinstance(raw, str):
+        return {}
+
+    text = raw.strip()
+    if not text:
+        return {}
+
+    try:
+        parsed = json.loads(text)
+        if isinstance(parsed, dict):
+            return {str(key): str(value) for key, value in parsed.items() if value is not None}
+    except json.JSONDecodeError:
+        pass
+
+    result: dict[str, str] = {}
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip()
+        if key:
+            result[key] = value
+    return result
+
+
 def hydrate_environment_from_cml() -> int:
-    """Load missing variables from CML project settings via API."""
+    """Load variables from CML project settings via API."""
     project_id = os.environ.get("CDSW_PROJECT_ID")
     if not project_id:
         return 0
@@ -64,16 +101,19 @@ def hydrate_environment_from_cml() -> int:
     try:
         client = cmlapi.default_client()
         project = client.get_project(project_id)
-        project_env = getattr(project, "environment", None) or {}
+        project_env = _parse_project_environment(getattr(project, "environment", None))
+        if not project_env:
+            return 0
+
         loaded = 0
         for key, value in project_env.items():
-            if value is None:
+            if key not in MANAGED_ENV_VARS:
                 continue
             text = str(value).strip()
             if not text:
                 continue
             current = os.environ.get(key)
-            if current is None or not str(current).strip():
+            if current is None or not str(current).strip() or current != text:
                 os.environ[key] = text
                 loaded += 1
         return loaded
@@ -82,12 +122,65 @@ def hydrate_environment_from_cml() -> int:
         return 0
 
 
+def _snapshot_paths() -> list[Path]:
+    candidates = [Path.cwd() / SNAPSHOT_FILENAME]
+    parent = Path.cwd().parent
+    if parent != Path.cwd():
+        candidates.append(parent / SNAPSHOT_FILENAME)
+    return candidates
+
+
+def load_environment_snapshot() -> int:
+    """Load variables saved during AMP install from a local snapshot file."""
+    loaded = 0
+    for path in _snapshot_paths():
+        if not path.is_file():
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            print(f"Warning: could not read environment snapshot {path}: {exc}")
+            continue
+        if not isinstance(data, dict):
+            continue
+        for key, value in data.items():
+            if key not in MANAGED_ENV_VARS or value is None:
+                continue
+            text = str(value).strip()
+            if not text:
+                continue
+            current = os.environ.get(key)
+            if current is None or not str(current).strip():
+                os.environ[key] = text
+                loaded += 1
+        break
+    return loaded
+
+
+def save_environment_snapshot() -> Path | None:
+    """Persist managed environment variables for later sessions."""
+    hydrate_environment_from_cml()
+    values = {key: os.environ[key] for key in MANAGED_ENV_VARS if os.environ.get(key)}
+    if not values:
+        return None
+    path = Path.cwd() / SNAPSHOT_FILENAME
+    path.write_text(json.dumps(values, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return path
+
+
+def hydrate_environment() -> int:
+    """Load deploy configuration from CML project settings and local snapshot."""
+    loaded = hydrate_environment_from_cml()
+    loaded += load_environment_snapshot()
+    return loaded
+
+
 def diagnose_environment() -> None:
     """Print whether each managed variable is visible to the process."""
     print("=== Environment variable diagnostic ===")
-    loaded = hydrate_environment_from_cml()
+    loaded = hydrate_environment()
     if loaded:
-        print(f"Loaded {loaded} variable(s) from CML project settings (Project Settings > Advanced).")
+        print(f"Loaded {loaded} variable(s) from CML project settings or local snapshot.")
 
     for name in MANAGED_ENV_VARS:
         raw = os.environ.get(name)
@@ -136,7 +229,7 @@ class Config:
 
     @classmethod
     def from_env(cls) -> Config:
-        hydrate_environment_from_cml()
+        hydrate_environment()
 
         neo4j_uri = _env("NEO4J_URI")
         if not neo4j_uri:
