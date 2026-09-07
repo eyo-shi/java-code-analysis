@@ -14,6 +14,7 @@ date: "2026-03-07"
 
 environment_variables:
   GIT_REPO_URL:
+    default: null
     description: |
       Git repository URL to clone and analyze.
       Required unless SOURCE_PATH is set. Update this value in Configuration to
@@ -24,6 +25,7 @@ environment_variables:
     description: "Git branch or tag to clone"
     required: false
   NEO4J_URI:
+    default: null
     description: "Bolt URI of the target Neo4j instance (e.g. bolt://localhost:7687, neo4j+s://... for Aura)."
     required: false
   NEO4J_USERNAME:
@@ -39,12 +41,15 @@ environment_variables:
     description: "Directory to clone the source repository into"
     required: false
   SOURCE_PATH:
+    default: null
     description: "When set, skip git clone and analyze this local path instead"
     required: false
   PROJECT_ID:
+    default: null
     description: "Neo4j project identifier for re-ingestion. Defaults to the repository name."
     required: false
   PROJECT_NAME:
+    default: null
     description: "Display name stored on the Project node. Defaults to a title derived from the repository name."
     required: false
   EXCLUDE_DIRS:
@@ -65,10 +70,15 @@ tasks:
     kernel: python3
     cpu: 2
     memory: 4
-  - type: run_session
+  - type: create_job
     name: Analyze and Ingest
+    entity_label: analyze-ingest
     script: 1_session-analyze-ingest/analyze_ingest.py
     short_summary: Clone source, analyze Java code, and ingest graph into Neo4j
     kernel: python3
     cpu: 2
     memory: 4
+
+  - type: run_job
+    entity_label: analyze-ingest
+    short_summary: Run analysis and Neo4j ingestion

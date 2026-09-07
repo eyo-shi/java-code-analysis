@@ -30,6 +30,7 @@ from code_analysis.source_fetcher import resolve_source_path
 
 
 def main() -> None:
+    diagnose_environment()
     config = Config.from_env()
     print(f"Configuration: {config.log_summary()}")
 

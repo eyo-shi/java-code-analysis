@@ -8,6 +8,29 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlparse
 
+MANAGED_ENV_VARS: tuple[str, ...] = (
+    "GIT_REPO_URL",
+    "GIT_REF",
+    "NEO4J_URI",
+    "NEO4J_USERNAME",
+    "NEO4J_PASSWORD",
+    "CLONE_DIR",
+    "SOURCE_PATH",
+    "PROJECT_ID",
+    "PROJECT_NAME",
+    "EXCLUDE_DIRS",
+)
+
+SENSITIVE_ENV_VARS: frozenset[str] = frozenset({"NEO4J_PASSWORD"})
+
+DEFAULT_ENV_VALUES: dict[str, str] = {
+    "GIT_REF": "main",
+    "NEO4J_USERNAME": "neo4j",
+    "NEO4J_PASSWORD": "Neo4jPass1234",
+    "CLONE_DIR": "/tmp/source",
+    "EXCLUDE_DIRS": ".git,target,node_modules,venv,.venv,dist,build,__pycache__,.m2",
+}
+
 
 def _env(name: str, default: str | None = None) -> str | None:
     value = os.getenv(name)
@@ -17,6 +40,69 @@ def _env(name: str, default: str | None = None) -> str | None:
     if not stripped:
         return default
     return stripped
+
+
+def _mask_value(name: str, value: str) -> str:
+    if name in SENSITIVE_ENV_VARS:
+        if len(value) <= 4:
+            return "***"
+        return f"{value[:3]}...{value[-2:]}"
+    return value
+
+
+def hydrate_environment_from_cml() -> int:
+    """Load missing variables from CML project settings via API."""
+    project_id = os.environ.get("CDSW_PROJECT_ID")
+    if not project_id:
+        return 0
+
+    try:
+        import cmlapi
+    except ImportError:
+        return 0
+
+    try:
+        client = cmlapi.default_client()
+        project = client.get_project(project_id)
+        project_env = getattr(project, "environment", None) or {}
+        loaded = 0
+        for key, value in project_env.items():
+            if value is None:
+                continue
+            text = str(value).strip()
+            if not text:
+                continue
+            current = os.environ.get(key)
+            if current is None or not str(current).strip():
+                os.environ[key] = text
+                loaded += 1
+        return loaded
+    except Exception as exc:
+        print(f"Warning: could not load CML project environment: {exc}")
+        return 0
+
+
+def diagnose_environment() -> None:
+    """Print whether each managed variable is visible to the process."""
+    print("=== Environment variable diagnostic ===")
+    loaded = hydrate_environment_from_cml()
+    if loaded:
+        print(f"Loaded {loaded} variable(s) from CML project settings (Project Settings > Advanced).")
+
+    for name in MANAGED_ENV_VARS:
+        raw = os.environ.get(name)
+        if raw is None or not str(raw).strip():
+            default = DEFAULT_ENV_VALUES.get(name)
+            if default is not None:
+                print(f"  {name}: MISSING (will use default: {default})")
+            else:
+                print(f"  {name}: MISSING")
+            continue
+        print(f"  {name}: SET ({_mask_value(name, raw)})")
+
+    cml_project_id = os.environ.get("CDSW_PROJECT_ID")
+    print(f"  CDSW_PROJECT_ID: {cml_project_id or 'MISSING (not running inside CML)'}")
+    print("========================================")
 
 
 def derive_project_id(repo_url: str) -> str:
@@ -50,14 +136,21 @@ class Config:
 
     @classmethod
     def from_env(cls) -> Config:
+        hydrate_environment_from_cml()
+
         neo4j_uri = _env("NEO4J_URI")
         if not neo4j_uri:
-            raise ValueError("NEO4J_URI is required")
+            diagnose_environment()
+            raise ValueError(
+                "NEO4J_URI is required. Set it in AMP Deploy Configuration or "
+                "Project Settings > Advanced > Environment Variables, then restart the session."
+            )
 
         source_path = _env("SOURCE_PATH")
         git_repo_url = _env("GIT_REPO_URL")
 
         if not source_path and not git_repo_url:
+            diagnose_environment()
             raise ValueError(
                 "GIT_REPO_URL is required when SOURCE_PATH is not set. "
                 "Set GIT_REPO_URL in CML Configuration to the repository to analyze."
