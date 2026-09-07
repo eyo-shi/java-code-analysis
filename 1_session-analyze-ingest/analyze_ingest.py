@@ -23,15 +23,13 @@ ROOT = _project_root()
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from code_analysis.config import Config, bootstrap_deploy_configuration, diagnose_environment
+from code_analysis.config import Config
 from code_analysis.graph_builder import build_graph
 from code_analysis.neo4j_loader import Neo4jLoader
 from code_analysis.source_fetcher import resolve_source_path
 
 
 def main() -> None:
-    bootstrap_deploy_configuration()
-    diagnose_environment()
     config = Config.from_env()
     config.validate_for_ingest()
     print(f"Configuration: {config.log_summary()}")

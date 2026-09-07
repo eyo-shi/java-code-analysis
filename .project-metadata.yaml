@@ -4,58 +4,47 @@ description: |
   graph into Neo4j. Connects to any Neo4j instance reachable via Bolt URI
   (neo4j-launcher, local Neo4j, Neo4j Aura, etc.).
 
-  Set GIT_REPO_URL in Configuration when deploying the AMP, or update it later to
-  change the analysis target repository.
+  Set GIT_REPO_URL and NEO4J_URI in Configuration when deploying the AMP, or update
+  them later in Project Settings > Advanced > Environment Variables.
 
 author: Cloudera Inc.
 specification_version: 1.0
-prototype_version: 1.2
+prototype_version: 2.0
 date: "2026-03-07"
 
 environment_variables:
   GIT_REPO_URL:
-    default: null
+    default: "https://github.com/terasolunaorg/terasoluna-tourreservation-mybatis3"
     description: |
       Git repository URL to clone and analyze.
-      Required unless SOURCE_PATH is set. Update this value in Configuration to
-      change the analysis target after deployment.
-    required: false
+      Required unless SOURCE_PATH is set.
   GIT_REF:
     default: "main"
     description: "Git branch or tag to clone"
-    required: false
   NEO4J_URI:
-    default: null
+    default: "bolt://localhost:7687"
     description: "Bolt URI of the target Neo4j instance (e.g. bolt://localhost:7687, neo4j+s://... for Aura)."
-    required: false
   NEO4J_USERNAME:
     default: "neo4j"
     description: "Neo4j username"
-    required: false
   NEO4J_PASSWORD:
     default: "Neo4jPass1234"
-    description: "Neo4j password. Defaults to Neo4jPass1234 when unset."
-    required: false
+    description: "Neo4j password"
   CLONE_DIR:
     default: "/tmp/source"
     description: "Directory to clone the source repository into"
-    required: false
   SOURCE_PATH:
-    default: null
+    default: ""
     description: "When set, skip git clone and analyze this local path instead"
-    required: false
   PROJECT_ID:
-    default: null
+    default: ""
     description: "Neo4j project identifier for re-ingestion. Defaults to the repository name."
-    required: false
   PROJECT_NAME:
-    default: null
+    default: ""
     description: "Display name stored on the Project node. Defaults to a title derived from the repository name."
-    required: false
   EXCLUDE_DIRS:
     default: ".git,target,node_modules,venv,.venv,dist,build,__pycache__,.m2"
     description: "Comma-separated directory names to exclude from analysis"
-    required: false
 
 runtimes:
   - editor: PBJ Workbench
@@ -63,13 +52,6 @@ runtimes:
     edition: Standard
 
 tasks:
-  - type: run_session
-    name: Load Deploy Configuration
-    script: 0_session-load-configuration/load_configuration.py
-    short_summary: Load AMP Deploy Configuration from CML project settings
-    kernel: python3
-    cpu: 1
-    memory: 1
   - type: run_session
     name: Install Dependencies
     script: 0_session-install-dependencies/install-dependencies.py
