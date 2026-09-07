@@ -87,6 +87,14 @@ def _parse_project_environment(raw: object) -> dict[str, str]:
     return result
 
 
+def _sanitize_empty_managed_env() -> None:
+    """Remove empty placeholders CML may inject for unset AMP configuration fields."""
+    for key in MANAGED_ENV_VARS:
+        value = os.environ.get(key)
+        if value is not None and not str(value).strip():
+            os.environ.pop(key, None)
+
+
 def hydrate_environment_from_cml() -> int:
     """Load variables from CML project settings via API."""
     project_id = os.environ.get("CDSW_PROJECT_ID")
@@ -103,6 +111,7 @@ def hydrate_environment_from_cml() -> int:
         project = client.get_project(project_id)
         project_env = _parse_project_environment(getattr(project, "environment", None))
         if not project_env:
+            print("CML project settings contain no deploy configuration environment variables.")
             return 0
 
         loaded = 0
@@ -112,10 +121,9 @@ def hydrate_environment_from_cml() -> int:
             text = str(value).strip()
             if not text:
                 continue
-            current = os.environ.get(key)
-            if current is None or not str(current).strip() or current != text:
-                os.environ[key] = text
-                loaded += 1
+            # Deploy Configuration in project settings is authoritative in CML.
+            os.environ[key] = text
+            loaded += 1
         return loaded
     except Exception as exc:
         print(f"Warning: could not load CML project environment: {exc}")
@@ -159,8 +167,11 @@ def load_environment_snapshot() -> int:
 
 def save_environment_snapshot() -> Path | None:
     """Persist managed environment variables for later sessions."""
-    hydrate_environment_from_cml()
-    values = {key: os.environ[key] for key in MANAGED_ENV_VARS if os.environ.get(key)}
+    values = {
+        key: os.environ[key]
+        for key in MANAGED_ENV_VARS
+        if os.environ.get(key) and str(os.environ[key]).strip()
+    }
     if not values:
         return None
     path = Path.cwd() / SNAPSHOT_FILENAME
@@ -170,9 +181,23 @@ def save_environment_snapshot() -> Path | None:
 
 def hydrate_environment() -> int:
     """Load deploy configuration from CML project settings and local snapshot."""
+    _sanitize_empty_managed_env()
     loaded = hydrate_environment_from_cml()
     loaded += load_environment_snapshot()
     return loaded
+
+
+def bootstrap_deploy_configuration() -> dict[str, int | bool]:
+    """Load deploy configuration and persist a snapshot for later sessions."""
+    _sanitize_empty_managed_env()
+    from_cml = hydrate_environment_from_cml()
+    from_snapshot = load_environment_snapshot()
+    snapshot_path = save_environment_snapshot()
+    return {
+        "from_cml_api": from_cml,
+        "from_snapshot": from_snapshot,
+        "snapshot_saved": snapshot_path is not None,
+    }
 
 
 def diagnose_environment() -> None:
@@ -281,6 +306,14 @@ class Config:
                 if part.strip()
             ),
         )
+
+    def validate_for_ingest(self) -> None:
+        if not self.neo4j_uri:
+            raise ValueError("NEO4J_URI is required")
+        if not self.source_path and not self.git_repo_url:
+            raise ValueError("GIT_REPO_URL is required when SOURCE_PATH is not set")
+        if not self.source_path and not self.git_ref:
+            raise ValueError("GIT_REF is required when cloning from GIT_REPO_URL")
 
     def log_summary(self) -> str:
         lines = [

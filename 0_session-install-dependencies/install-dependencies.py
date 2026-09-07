@@ -8,13 +8,12 @@ if (ROOT / "code_analysis").is_dir():
 elif (ROOT.parent / "code_analysis").is_dir():
     sys.path.insert(0, str(ROOT.parent))
 
-from code_analysis.config import hydrate_environment, save_environment_snapshot
+from code_analysis.config import bootstrap_deploy_configuration
 
 print(subprocess.run(["sh 0_session-install-dependencies/setup.sh"], shell=True))
 
-loaded = hydrate_environment()
-snapshot = save_environment_snapshot()
-if loaded:
-    print(f"Loaded {loaded} deploy configuration variable(s) from CML project settings.")
-if snapshot:
-    print(f"Saved environment snapshot to {snapshot}")
+stats = bootstrap_deploy_configuration()
+if stats["from_cml_api"]:
+    print(f"Loaded {stats['from_cml_api']} deploy configuration variable(s) from CML project settings.")
+if stats["snapshot_saved"]:
+    print("Saved environment snapshot to .cml-project-env.json")

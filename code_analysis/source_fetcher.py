@@ -23,6 +23,12 @@ def resolve_source_path(
     if not git_repo_url:
         raise ValueError("GIT_REPO_URL is required when SOURCE_PATH is not set")
 
+    if not git_ref or not git_ref.strip():
+        raise ValueError("GIT_REF is required when cloning from GIT_REPO_URL")
+
+    git_repo_url = git_repo_url.strip()
+    git_ref = git_ref.strip()
+
     target = Path(clone_dir).resolve()
     if target.exists():
         shutil.rmtree(target)
