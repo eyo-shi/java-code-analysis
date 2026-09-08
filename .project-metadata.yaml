@@ -9,7 +9,7 @@ description: |
 
 author: Cloudera Inc.
 specification_version: 1.0
-prototype_version: 2.1
+prototype_version: 2.3
 date: "2026-03-07"
 
 environment_variables:
@@ -19,8 +19,8 @@ environment_variables:
       Git repository URL to clone and analyze.
       Required unless SOURCE_PATH is set.
   GIT_REF:
-    default: "main"
-    description: "Git branch or tag to clone"
+    default: "release/5.7.1.SP1.RELEASE"
+    description: "Git branch or tag to clone (e.g. release/5.7.1.SP1.RELEASE, master)"
   NEO4J_URI:
     default: "bolt://localhost:7687"
     description: "Bolt URI of the target Neo4j instance (e.g. bolt://localhost:7687, neo4j+s://... for Aura)."

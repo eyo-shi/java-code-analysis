@@ -28,13 +28,34 @@ SENSITIVE_ENV_VARS: frozenset[str] = frozenset({"NEO4J_PASSWORD"})
 # Defaults aligned with .project-metadata.yaml environment_variables.default.
 METADATA_DEFAULTS: dict[str, str] = {
     "GIT_REPO_URL": "https://github.com/terasolunaorg/terasoluna-tourreservation-mybatis3",
-    "GIT_REF": "main",
+    "GIT_REF": "release/5.7.1.SP1.RELEASE",
     "NEO4J_URI": "bolt://localhost:7687",
     "NEO4J_USERNAME": "neo4j",
     "NEO4J_PASSWORD": "Neo4jPass1234",
     "CLONE_DIR": "/tmp/source",
     "EXCLUDE_DIRS": ".git,target,node_modules,venv,.venv,dist,build,__pycache__,.m2",
 }
+
+
+def _coerce_config_value(value: object) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        text = value.strip()
+        return text or None
+    if isinstance(value, (int, float, bool)):
+        return str(value)
+    if isinstance(value, dict):
+        for key in ("value", "defaultValue"):
+            nested = value.get(key)
+            if isinstance(nested, str) and nested.strip():
+                return nested.strip()
+        target = value.get("target")
+        if isinstance(target, dict):
+            nested = target.get("value")
+            if isinstance(nested, str) and nested.strip():
+                return nested.strip()
+    return None
 
 
 def _parse_project_environment(raw: object) -> dict[str, str]:
@@ -58,41 +79,35 @@ def _parse_project_environment(raw: object) -> dict[str, str]:
 
     result: dict[str, str] = {}
     for key, value in items:
-        if not isinstance(value, str):
-            continue
-        text = value.strip()
-        if text:
-            result[str(key)] = text
+        coerced = _coerce_config_value(value)
+        if coerced:
+            result[str(key)] = coerced
     return result
 
 
-def _load_project_environment_from_cml() -> int:
-    """Load project environment variables stored by CML (Configuration screen)."""
+def _load_project_environment_from_cml() -> dict[str, str]:
+    """Return project environment variables stored by CML (Configuration screen)."""
     project_id = os.environ.get("CDSW_PROJECT_ID")
     if not project_id:
-        return 0
+        return {}
 
     try:
         import cmlapi
     except ImportError:
-        return 0
+        return {}
 
     try:
         client = cmlapi.default_client()
         project = client.get_project(project_id)
         project_env = _parse_project_environment(getattr(project, "environment", None))
-        loaded = 0
         for key, value in project_env.items():
-            if key not in MANAGED_ENV_VARS:
-                continue
-            current = os.environ.get(key)
-            if current is None or not str(current).strip():
+            if key in MANAGED_ENV_VARS:
+                # Project Settings values are authoritative for AMP Configuration.
                 os.environ[key] = value
-                loaded += 1
-        return loaded
+        return project_env
     except Exception as exc:
         print(f"Warning: could not load CML project environment: {exc}")
-        return 0
+        return {}
 
 
 def _env(name: str, default: str | None = None) -> str | None:
@@ -109,8 +124,10 @@ def _env(name: str, default: str | None = None) -> str | None:
     return None
 
 
-def _resolve_env(name: str) -> tuple[str | None, str]:
-    """Return (value, source) where source is os.environ, project, or metadata."""
+def _resolve_env(name: str, project_env: dict[str, str] | None = None) -> tuple[str | None, str]:
+    """Return (value, source)."""
+    if project_env and project_env.get(name):
+        return project_env[name], "CML project environment"
     raw = os.environ.get(name)
     if raw is not None and str(raw).strip():
         return str(raw).strip(), "os.environ"
@@ -128,18 +145,19 @@ def _mask_value(name: str, value: str) -> str:
     return value
 
 
-def diagnose_environment() -> None:
+def diagnose_environment(project_env: dict[str, str] | None = None) -> None:
     """Print values visible in os.environ for troubleshooting."""
-    loaded = _load_project_environment_from_cml()
+    if project_env is None:
+        project_env = _load_project_environment_from_cml()
     print("=== Environment variable diagnostic ===")
     print(
-        "CML stores AMP Configuration in project environment variables and injects "
-        "them into os.environ at task startup."
+        "AMP Configuration is stored in CML project environment variables "
+        "(Project Settings > Advanced) and injected into os.environ at task startup."
     )
-    if loaded:
-        print(f"Loaded {loaded} value(s) from CML project environment via API.")
+    if project_env:
+        print(f"CML project environment keys: {sorted(project_env.keys())}")
     for name in MANAGED_ENV_VARS:
-        value, source = _resolve_env(name)
+        value, source = _resolve_env(name, project_env)
         if value is None:
             print(f"  {name}: MISSING")
             continue
@@ -179,11 +197,11 @@ class Config:
 
     @classmethod
     def from_env(cls) -> Config:
-        _load_project_environment_from_cml()
+        project_env = _load_project_environment_from_cml()
 
         neo4j_uri = _env("NEO4J_URI")
         if not neo4j_uri:
-            diagnose_environment()
+            diagnose_environment(project_env)
             raise ValueError(
                 "NEO4J_URI is required. Set it in AMP Configuration or "
                 "Project Settings > Advanced > Environment Variables, then run the "
@@ -194,7 +212,7 @@ class Config:
         git_repo_url = _env("GIT_REPO_URL")
 
         if not source_path and not git_repo_url:
-            diagnose_environment()
+            diagnose_environment(project_env)
             raise ValueError(
                 "GIT_REPO_URL is required when SOURCE_PATH is not set. Set it in AMP "
                 "Configuration or Project Settings > Advanced, then re-run the AMP task."
@@ -215,7 +233,7 @@ class Config:
             neo4j_username=_env("NEO4J_USERNAME", "neo4j") or "neo4j",
             neo4j_password=_env("NEO4J_PASSWORD", "Neo4jPass1234") or "Neo4jPass1234",
             git_repo_url=git_repo_url,
-            git_ref=_env("GIT_REF", "main") or "main",
+            git_ref=_env("GIT_REF") or METADATA_DEFAULTS["GIT_REF"],
             clone_dir=_env("CLONE_DIR", "/tmp/source") or "/tmp/source",
             source_path=source_path,
             project_id=project_id,

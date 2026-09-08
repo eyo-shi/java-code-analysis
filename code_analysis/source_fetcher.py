@@ -34,7 +34,7 @@ def resolve_source_path(
         shutil.rmtree(target)
 
     print(f"Cloning {git_repo_url} (ref={git_ref}) into {target}")
-    subprocess.run(
+    result = subprocess.run(
         [
             "git",
             "clone",
@@ -45,6 +45,17 @@ def resolve_source_path(
             git_repo_url,
             str(target),
         ],
-        check=True,
+        capture_output=True,
+        text=True,
+        check=False,
     )
+    if result.returncode != 0:
+        stderr = (result.stderr or "").strip()
+        raise RuntimeError(
+            f"git clone failed for ref '{git_ref}'.\n"
+            f"{stderr}\n"
+            "Set GIT_REF in AMP Configuration or Project Settings > Advanced to an "
+            "existing branch or tag (this repository has no 'main' branch; "
+            "e.g. release/5.7.1.SP1.RELEASE or master)."
+        )
     return target
