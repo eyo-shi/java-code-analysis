@@ -41,10 +41,12 @@
 ```
 GIT_REPO_URL=https://github.com/terasolunaorg/terasoluna-tourreservation-mybatis3
 GIT_REF=release/5.7.1.SP1.RELEASE
-NEO4J_URI=bolt://cml-neo4j-xxxxx.namespace:7687
+NEO4J_URI=bolt://neo4j-launcher-<id>:7687
 NEO4J_USERNAME=neo4j
-NEO4J_PASSWORD=Neo4jPass1234
+NEO4J_PASSWORD=<neo4j-launcher起動時のパスワード>
 ```
+
+`<id>` は neo4j-launcher のブラウザ URL（`neo4j-launcher-<id>.ml....cloudera.site`）から取得します。`*.cloudera.site` はブラウザ用で、ジョブからの Bolt 接続には使えません。
 
 **ローカル Neo4j の場合:**
 
@@ -60,7 +62,7 @@ NEO4J_PASSWORD=your-password
 
 | 接続先 | `NEO4J_URI` の例 |
 |--------|------------------|
-| neo4j-launcher（CML 内） | `bolt://cml-neo4j-xxxxx.namespace:7687` |
+| neo4j-launcher（CML 内） | `bolt://neo4j-launcher-<id>:7687`（クラスタ内サービス名） |
 | ローカル Neo4j | `bolt://localhost:7687` |
 | Neo4j Aura | `neo4j+s://xxxxx.databases.neo4j.io` |
 | リモート Neo4j | `bolt://hostname:7687` |

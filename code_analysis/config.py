@@ -73,28 +73,10 @@ def _validate_env_value(name: str, value: str) -> bool:
     return not _looks_corrupted(value) or name == "EXCLUDE_DIRS"
 
 
-def normalize_neo4j_uri(uri: str) -> str:
-    """Upgrade plain bolt:// for CML neo4j-launcher ingress hosts that require TLS."""
-    parsed = urlparse(uri)
-    if not parsed.hostname:
-        return uri
-
-    host = parsed.hostname.lower()
-    scheme = (parsed.scheme or "bolt").lower()
-    port = f":{parsed.port}" if parsed.port else ""
-    normalized = f"{scheme}://{host}{port}"
-
-    if scheme == "bolt" and host.endswith(".cloudera.site"):
-        return f"bolt+ssc://{host}{port}"
-    return normalized
-
-
 def _normalize_env_value(name: str, value: str) -> str:
     text = value.strip()
-    if name == "NEO4J_URI":
-        if "://" not in text:
-            text = f"bolt://{text}"
-        text = normalize_neo4j_uri(text)
+    if name == "NEO4J_URI" and "://" not in text:
+        text = f"bolt://{text}"
     return text
 
 

@@ -4,12 +4,11 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Any, Callable
-from urllib.parse import urlparse
 
 from neo4j import GraphDatabase
-from neo4j.exceptions import ServiceUnavailable
 
 from code_analysis.models import AnalysisGraph, SqlOperation
+from code_analysis.neo4j_connect import format_neo4j_connection_help, iter_neo4j_connection_uris
 
 
 BATCH_SIZE = 200
@@ -24,59 +23,45 @@ SQL_RELATION = {
 
 class Neo4jLoader:
     def __init__(self, uri: str, username: str, password: str) -> None:
+        self._configured_uri = uri
         self._uri = uri
         self._username = username
         self._password = password
-        self._driver = self._connect(uri)
+        self._driver = None
 
     def _connect(self, uri: str):
         return GraphDatabase.driver(uri, auth=(self._username, self._password))
 
-    def _tls_fallback_uri(self, uri: str) -> str | None:
-        parsed = urlparse(uri)
-        if not parsed.hostname or parsed.scheme in {"bolt+s", "bolt+ssc", "neo4j+s", "neo4j+ssc"}:
-            return None
-        port = f":{parsed.port}" if parsed.port else ""
-        return f"bolt+ssc://{parsed.hostname}{port}"
-
     def verify_connectivity(self) -> None:
-        try:
-            self._driver.verify_connectivity()
-            return
-        except ServiceUnavailable as exc:
-            if "Bolt handshake" not in str(exc) and "handshake" not in str(exc).lower():
-                raise
-
-            fallback = self._tls_fallback_uri(self._uri)
-            if not fallback or fallback == self._uri:
-                raise ValueError(self._connection_help(exc)) from exc
-
-            print(f"Retrying Neo4j connection with TLS: {fallback}")
-            self._driver.close()
-            self._uri = fallback
-            self._driver = self._connect(fallback)
+        errors: list[str] = []
+        for candidate in iter_neo4j_connection_uris(self._configured_uri):
+            if candidate != self._configured_uri:
+                print(f"Trying Neo4j URI: {candidate}")
+            driver = self._connect(candidate)
             try:
-                self._driver.verify_connectivity()
-            except ServiceUnavailable as retry_exc:
-                raise ValueError(self._connection_help(retry_exc)) from retry_exc
+                driver.verify_connectivity()
+            except Exception as exc:
+                driver.close()
+                errors.append(f"  {candidate}: {exc}")
+                continue
 
-    def _connection_help(self, exc: Exception) -> str:
-        return (
-            f"Could not connect to Neo4j at {self._uri}: {exc}\n"
-            "Checklist:\n"
-            "  1. neo4j-launcher is running (Applications page in CML)\n"
-            "  2. NEO4J_URI uses TLS for external hosts, e.g.\n"
-            "     bolt+ssc://neo4j-launcher-xxxxx....cloudera.site:7687\n"
-            "  3. NEO4J_PASSWORD matches the password shown when neo4j-launcher was started\n"
-            "     (not the metadata default Neo4jPass1234)\n"
-            "  4. NEO4J_USERNAME is usually neo4j"
-        )
+            if self._driver is not None:
+                self._driver.close()
+            self._uri = candidate
+            self._driver = driver
+            if candidate != self._configured_uri:
+                print(f"Connected via in-cluster URI: {candidate}")
+            return
+
+        raise ValueError(format_neo4j_connection_help(self._configured_uri, errors))
 
     def close(self) -> None:
-        self._driver.close()
+        if self._driver is not None:
+            self._driver.close()
 
     def ingest(self, graph: AnalysisGraph) -> None:
         self.verify_connectivity()
+        assert self._driver is not None
         with self._driver.session() as session:
             session.execute_write(self._ensure_constraints)
             session.execute_write(self._delete_project, graph.project_id)

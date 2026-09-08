@@ -14,7 +14,6 @@ from code_analysis.config import (
     _env,
     _looks_corrupted,
     diagnose_environment,
-    normalize_neo4j_uri,
 )
 
 
@@ -65,16 +64,11 @@ class ConfigEnvResolutionTests(unittest.TestCase):
         os.environ["NEO4J_URI"] = "cml-neo4j-xxxxx.namespace:7687"
         self.assertEqual(_env("NEO4J_URI"), "bolt://cml-neo4j-xxxxx.namespace:7687")
 
-    def test_neo4j_uri_cloudera_site_uses_tls(self) -> None:
-        uri = "bolt://neo4j-launcher-10j1ta.ml.example.cloudera.site:7687"
-        self.assertEqual(
-            normalize_neo4j_uri(uri),
-            "bolt+ssc://neo4j-launcher-10j1ta.ml.example.cloudera.site:7687",
-        )
-        os.environ["NEO4J_URI"] = uri
+    def test_neo4j_uri_keeps_cloudera_site_plain_bolt(self) -> None:
+        os.environ["NEO4J_URI"] = "bolt://neo4j-launcher-10j1ta.ml.example.cloudera.site:7687"
         self.assertEqual(
             _env("NEO4J_URI"),
-            "bolt+ssc://neo4j-launcher-10j1ta.ml.example.cloudera.site:7687",
+            "bolt://neo4j-launcher-10j1ta.ml.example.cloudera.site:7687",
         )
 
     def test_neo4j_uri_accepts_bolt_plus_s(self) -> None:
