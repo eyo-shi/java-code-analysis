@@ -13,8 +13,8 @@
 ## クイックスタート（CML）
 
 1. 接続先の Neo4j が起動済みであることを確認（neo4j-launcher、ローカル、Aura など）
-2. 本 AMP を CML プロジェクトにデプロイ
-3. **Configuration** で以下を設定:
+2. 本 AMP を CML プロジェクトにデプロイ（依存パッケージのインストールのみ自動実行）
+3. **Project Settings → Advanced → Environment Variables** で以下を設定:
 
 | 変数 | 必須 | 説明 |
 |------|------|------|
@@ -26,11 +26,11 @@
 
 \* `SOURCE_PATH` を設定した場合は clone をスキップするため不要
 
-4. `Install Dependencies` → `Analyze and Ingest` を実行
+4. **Jobs** ページから **Analyze and Ingest** ジョブを手動実行
 
 ### 解析対象リポジトリの変更
 
-CML の **Project Settings → Configuration** で `GIT_REPO_URL`（および必要なら `GIT_REF`）を書き換え、`Analyze and Ingest` を再実行してください。
+**Project Settings → Advanced → Environment Variables** で `GIT_REPO_URL`（および必要なら `GIT_REF`）を書き換え、**Analyze and Ingest** ジョブを再実行してください。
 
 `PROJECT_ID` / `PROJECT_NAME` を省略した場合、リポジトリ URL から自動生成されます。別リポジトリに切り替えた際に Neo4j 上で別グラフとして管理したい場合は、`PROJECT_ID` も合わせて変更してください。
 
@@ -222,8 +222,8 @@ A CML AMP that analyzes any Java repository and ingests a cross-cutting business
 ## Quick Start (CML)
 
 1. Ensure the target Neo4j instance is running (neo4j-launcher, local, Aura, etc.)
-2. Deploy this AMP to a CML project
-3. Set the following in **Configuration**:
+2. Deploy this AMP to a CML project (only dependency installation runs automatically)
+3. Set the following in **Project Settings → Advanced → Environment Variables**:
 
 | Variable | Required | Description |
 |----------|----------|-------------|
@@ -235,11 +235,11 @@ A CML AMP that analyzes any Java repository and ingests a cross-cutting business
 
 \* Not required when `SOURCE_PATH` is set (clone is skipped)
 
-4. Run `Install Dependencies` → `Analyze and Ingest`
+4. Manually run the **Analyze and Ingest** job from the **Jobs** page
 
 ### Changing the Analysis Target Repository
 
-Update `GIT_REPO_URL` (and `GIT_REF` if needed) in **Project Settings → Configuration**, then re-run `Analyze and Ingest`.
+Update `GIT_REPO_URL` (and `GIT_REF` if needed) in **Project Settings → Advanced → Environment Variables**, then re-run the **Analyze and Ingest** job.
 
 If `PROJECT_ID` / `PROJECT_NAME` are omitted, they are derived from the repository URL. Change `PROJECT_ID` as well when you want a separate graph in Neo4j for a different repository.
 

@@ -251,8 +251,9 @@ class Config:
         neo4j_uri = _env("NEO4J_URI")
         if not neo4j_uri:
             raise ValueError(
-                "NEO4J_URI is required in os.environ. Run the 'Bootstrap' AMP task first, "
-                "and set NEO4J_URI in Project Settings > Advanced > Environment Variables."
+                "NEO4J_URI is required. Set it in "
+                "Project Settings > Advanced > Environment Variables, "
+                "then run the 'Analyze and Ingest' job."
             )
 
         source_path = _env("SOURCE_PATH")

@@ -68,7 +68,7 @@ def ensure_project_environment() -> dict[str, str]:
             "  1. Set NEO4J_URI in Project Settings > Advanced > Environment Variables\n"
             "     (same store as AMP Configuration; use a plain string, not the UI event object)\n"
             "  2. Or set a non-empty default in .project-metadata.yaml and redeploy\n"
-            "Then run the 'Bootstrap' AMP task, then 'Analyze and Ingest'."
+            "Then run the 'Analyze and Ingest' job."
         )
 
     updates = {"NEO4J_URI": neo4j_uri}

@@ -4,13 +4,12 @@ description: |
   graph into Neo4j. Connects to any Neo4j instance reachable via Bolt URI
   (neo4j-launcher, local Neo4j, Neo4j Aura, etc.).
 
-  Set environment variables in AMP Configuration at deploy time, or update them later
-  in Project Settings > Advanced > Environment Variables. Run the Bootstrap task to
-  persist NEO4J_URI via create_environment_variable (Churn AMP pattern).
+  After deploy, set environment variables in Project Settings > Advanced >
+  Environment Variables, then run the "Analyze and Ingest" job manually.
 
 author: Cloudera Inc.
 specification_version: 1.0
-prototype_version: 3.3
+prototype_version: 3.4
 date: "2026-03-07"
 
 environment_variables:
@@ -19,6 +18,7 @@ environment_variables:
     description: |
       Git repository URL to clone and analyze.
       Required unless SOURCE_PATH is set.
+      Set in Project Settings > Advanced > Environment Variables after deploy.
   GIT_REF:
     default: "release/5.7.1.SP1.RELEASE"
     description: "Git branch or tag to clone (e.g. release/5.7.1.SP1.RELEASE, master)"
@@ -26,7 +26,7 @@ environment_variables:
     default: "bolt://neo4j-launcher:7687"
     description: |
       Bolt URI of the target Neo4j instance (required).
-      Update in Project Settings > Advanced > Environment Variables after deploy.
+      Set in Project Settings > Advanced > Environment Variables after deploy.
       Example: bolt://cml-neo4j-xxxxx.namespace:7687
   NEO4J_USERNAME:
     default: "neo4j"
@@ -56,17 +56,33 @@ runtimes:
     edition: Standard
 
 tasks:
-  - type: run_session
-    name: Bootstrap
-    script: 0_session-bootstrap/bootstrap.py
-    short_summary: Install dependencies and persist NEO4J_URI to project environment
+  - type: create_job
+    name: Install Dependencies
+    entity_label: install_deps
+    script: 0_session-install-dependencies/install-dependencies.py
     kernel: python3
     cpu: 2
     memory: 4
-  - type: run_session
+    short_summary: Create job to install project dependencies.
+    environment:
+      TASK_TYPE: CREATE/RUN_JOB
+
+  - type: run_job
+    entity_label: install_deps
+    short_summary: Install project dependencies.
+    long_summary: >-
+      Install Python dependencies required for analysis and Neo4j ingestion.
+
+  - type: create_job
     name: Analyze and Ingest
+    entity_label: analyze_and_ingest
     script: 1_session-analyze-ingest/analyze_ingest.py
-    short_summary: Clone source, analyze Java code, and ingest graph into Neo4j
     kernel: python3
     cpu: 2
     memory: 4
+    short_summary: Clone source, analyze Java code, and ingest graph into Neo4j.
+    long_summary: >-
+      Run manually after setting environment variables in
+      Project Settings > Advanced > Environment Variables.
+    environment:
+      TASK_TYPE: CREATE/RUN_JOB
