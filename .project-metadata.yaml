@@ -9,7 +9,7 @@ description: |
 
 author: Cloudera Inc.
 specification_version: 1.0
-prototype_version: 3.4
+prototype_version: 3.5
 date: "2026-03-07"
 
 environment_variables:
@@ -27,13 +27,17 @@ environment_variables:
     description: |
       Bolt URI of the target Neo4j instance (required).
       Set in Project Settings > Advanced > Environment Variables after deploy.
-      Example: bolt://cml-neo4j-xxxxx.namespace:7687
+      For CML neo4j-launcher external URLs (*.cloudera.site), use:
+        bolt+ssc://neo4j-launcher-xxxxx....cloudera.site:7687
+      Use the password shown when neo4j-launcher was started (not the default below).
   NEO4J_USERNAME:
     default: "neo4j"
-    description: "Neo4j username"
+    description: "Neo4j username (usually neo4j)"
   NEO4J_PASSWORD:
     default: "Neo4jPass1234"
-    description: "Neo4j password"
+    description: |
+      Neo4j password. For neo4j-launcher, copy the password from the launcher
+      startup screen (not this default).
   CLONE_DIR:
     default: "/tmp/source"
     description: "Directory to clone the source repository into"
