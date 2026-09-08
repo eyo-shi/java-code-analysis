@@ -116,7 +116,10 @@ class ConfigEnvResolutionTests(unittest.TestCase):
             "PROJECT_NAME": "My App",
             "EXCLUDE_DIRS": ".git,target",
         }
-        with patch("code_analysis.config._load_project_environment_from_cml", return_value=project_env):
+        with patch(
+            "code_analysis.config._load_project_environment_from_cml",
+            return_value=(project_env, {"NEO4J_URI": "CML project environment"}),
+        ):
             with patch("code_analysis.config._sanitize_managed_env"):
                 with patch("code_analysis.config.diagnose_environment"):
                     config = Config.from_env()
@@ -131,10 +134,39 @@ class ConfigEnvResolutionTests(unittest.TestCase):
         self.assertEqual(config.project_name, "My App")
         self.assertEqual(config.exclude_dirs, (".git", "target"))
 
+    def test_regex_extracts_neo4j_uri_from_serialized_react_event(self) -> None:
+        raw = {
+            "type": "change",
+            "target": {"value": "bolt://neo4j-launcher.cml.svc:7687"},
+            "dispatchConfig": None,
+            "nativeEvent": None,
+        }
+        parsed = _parse_project_environment({"NEO4J_URI": raw})
+        self.assertEqual(parsed["NEO4J_URI"], "bolt://neo4j-launcher.cml.svc:7687")
+
+    def test_local_env_overrides_missing_cml_neo4j_uri(self) -> None:
+        project_env = {
+            "GIT_REPO_URL": "https://github.com/example/app.git",
+            "NEO4J_URI": "bolt://from-local:7687",
+        }
+        config_sources = {"GIT_REPO_URL": "CML project environment", "NEO4J_URI": "amp.local.env"}
+        os.environ["CDSW_PROJECT_ID"] = "proj-123"
+        with patch(
+            "code_analysis.config._load_project_environment_from_cml",
+            return_value=(project_env, config_sources),
+        ):
+            with patch("code_analysis.config._sanitize_managed_env"):
+                with patch("code_analysis.config.diagnose_environment"):
+                    config = Config.from_env()
+        self.assertEqual(config.neo4j_uri, "bolt://from-local:7687")
+
     def test_config_requires_neo4j_uri_in_cml(self) -> None:
         os.environ["CDSW_PROJECT_ID"] = "proj-123"
         os.environ["GIT_REPO_URL"] = "https://github.com/example/app.git"
-        with patch("code_analysis.config._load_project_environment_from_cml", return_value={}):
+        with patch(
+            "code_analysis.config._load_project_environment_from_cml",
+            return_value=({}, {}),
+        ):
             with patch("code_analysis.config._sanitize_managed_env"):
                 with patch("code_analysis.config.diagnose_environment"):
                     with self.assertRaises(ValueError):
