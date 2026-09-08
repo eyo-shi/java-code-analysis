@@ -2,8 +2,6 @@ __pycache__/
 *.py[cod]
 .Python
 .env
-amp.local.env
-amp.deploy.env
 .venv/
 venv/
 *.egg-info/

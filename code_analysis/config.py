@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import os
 import re
 from dataclasses import dataclass
@@ -25,418 +24,78 @@ MANAGED_ENV_VARS: tuple[str, ...] = (
 
 SENSITIVE_ENV_VARS: frozenset[str] = frozenset({"NEO4J_PASSWORD"})
 
-OPTIONAL_ENV_VARS: frozenset[str] = frozenset(
-    {"SOURCE_PATH", "PROJECT_ID", "PROJECT_NAME"}
-)
-
-LOCAL_ENV_FILENAMES: tuple[str, ...] = ("amp.local.env", "amp.deploy.env")
-
-# Defaults aligned with .project-metadata.yaml environment_variables.default.
+# Defaults aligned with .project-metadata.yaml (local development fallback only).
 METADATA_DEFAULTS: dict[str, str] = {
     "GIT_REPO_URL": "https://github.com/terasolunaorg/terasoluna-tourreservation-mybatis3",
     "GIT_REF": "release/5.7.1.SP1.RELEASE",
-    "NEO4J_URI": "",
     "NEO4J_USERNAME": "neo4j",
     "NEO4J_PASSWORD": "Neo4jPass1234",
     "CLONE_DIR": "/tmp/source",
     "EXCLUDE_DIRS": ".git,target,node_modules,venv,.venv,dist,build,__pycache__,.m2",
 }
 
-# In CML, do not silently substitute metadata defaults for deploy-time user inputs.
-CML_USER_SUPPLIED_VARS: frozenset[str] = frozenset(
-    {
-        "GIT_REPO_URL",
-        "NEO4J_URI",
-        "SOURCE_PATH",
-        "PROJECT_ID",
-        "PROJECT_NAME",
-    }
-)
-
-_EVENT_MARKERS = ("dispatchConfig", "_dispatchListeners", "nativeEvent", "isTrusted")
-_NEO4J_URI_PATTERN = re.compile(
-    r"(?:bolt|neo4j\+s?|neo4j\+ssc)://[^\s\"'\\{}]+",
-    re.IGNORECASE,
-)
-_GIT_URL_PATTERN = re.compile(r"https?://[^\s\"'\\{}]+|git@[^\s\"'\\{}]+")
-
-
-def _project_root_candidates() -> list[Path]:
-    candidates = [Path.cwd()]
-    parent = Path.cwd().parent
-    if parent != Path.cwd():
-        candidates.append(parent)
-    return candidates
-
-
-def _deep_collect_strings(value: object, depth: int = 0) -> list[str]:
-    if depth > 8 or value is None:
-        return []
-    if isinstance(value, str):
-        text = value.strip()
-        return [text] if text else []
-    if isinstance(value, (int, float, bool)):
-        return [str(value)]
-    if isinstance(value, dict):
-        strings: list[str] = []
-        for nested in value.values():
-            strings.extend(_deep_collect_strings(nested, depth + 1))
-        return strings
-    if isinstance(value, (list, tuple)):
-        strings: list[str] = []
-        for nested in value:
-            strings.extend(_deep_collect_strings(nested, depth + 1))
-        return strings
-    return []
-
-
-def _looks_like_react_shell(value: object) -> bool:
-    if isinstance(value, str):
-        text = value.strip()
-        if not text.startswith("{"):
-            return False
-        return any(marker in text for marker in _EVENT_MARKERS)
-    if isinstance(value, dict):
-        return any(marker in value for marker in _EVENT_MARKERS)
-    return False
-
-
-def _extract_scalar(value: object, depth: int = 0) -> str | None:
-    """Extract a plain string from CML values, including React event wrappers."""
-    if depth > 6 or value is None:
-        return None
-    if isinstance(value, str):
-        text = value.strip()
-        if not text:
-            return None
-        if text.startswith("{") or text.startswith("["):
-            try:
-                parsed = json.loads(text)
-            except json.JSONDecodeError:
-                return text if not any(marker in text for marker in _EVENT_MARKERS) else None
-            return _extract_scalar(parsed, depth + 1)
-        if any(marker in text for marker in _EVENT_MARKERS):
-            return None
-        return text
-    if isinstance(value, (int, float, bool)):
-        return str(value)
-    if isinstance(value, dict):
-        for key in ("value", "defaultValue", "currentValue"):
-            extracted = _extract_scalar(value.get(key), depth + 1)
-            if extracted:
-                return extracted
-        for key in ("target", "currentTarget"):
-            extracted = _extract_scalar(value.get(key), depth + 1)
-            if extracted:
-                return extracted
-        native_event = value.get("nativeEvent")
-        if native_event is not None:
-            extracted = _extract_scalar(native_event, depth + 1)
-            if extracted:
-                return extracted
-    return None
-
-
-def _regex_extract_for_name(name: str, value: object) -> str | None:
-    serialized = value if isinstance(value, str) else json.dumps(value, default=str)
-    if name == "NEO4J_URI":
-        match = _NEO4J_URI_PATTERN.search(serialized)
-        if match:
-            return match.group(0)
-    if name == "GIT_REPO_URL":
-        match = _GIT_URL_PATTERN.search(serialized)
-        if match:
-            return match.group(0)
-    return None
-
-
-def _validate_env_value(name: str, value: str) -> bool:
-    if name == "GIT_REPO_URL":
-        return value.startswith(("http://", "https://", "git@"))
-    if name == "NEO4J_URI":
-        return (
-            value.startswith(("bolt://", "neo4j://", "neo4j+s://", "neo4j+ssc://"))
-            and "{" not in value
-            and "dispatchConfig" not in value
-        )
-    if name == "GIT_REF":
-        return "{" not in value and "dispatchConfig" not in value and len(value) <= 256
-    if name == "SOURCE_PATH":
-        return "{" not in value and "dispatchConfig" not in value
-    return "{" not in value or name == "EXCLUDE_DIRS"
-
-
-def _apply_name_specific_normalization(name: str, text: str) -> str:
-    if name == "NEO4J_URI" and "://" not in text:
-        if "{" in text or "dispatchConfig" in text:
-            return text
-        return f"bolt://{text}"
-    return text
-
-
-def _normalize_env_value(name: str, value: object) -> str | None:
-    candidates: list[object] = [value]
-    candidates.extend(_deep_collect_strings(value))
-
-    regex_candidate = _regex_extract_for_name(name, value)
-    if regex_candidate:
-        candidates.append(regex_candidate)
-
-    for candidate in candidates:
-        text = _extract_scalar(candidate)
-        if text is None:
-            continue
-        text = _apply_name_specific_normalization(name, text)
-        if _validate_env_value(name, text):
-            return text
-    return None
+_CORRUPTED_MARKERS = ("dispatchConfig", "_dispatchListeners", "nativeEvent", "isTrusted")
 
 
 def _in_cml_runtime() -> bool:
     return bool(os.environ.get("CDSW_PROJECT_ID"))
 
 
-def _parse_key_value_lines(text: str) -> dict[str, str]:
-    result: dict[str, str] = {}
-    for line in text.splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, _, raw_value = line.partition("=")
-        key = key.strip()
-        normalized = _normalize_env_value(key, raw_value.strip())
-        if normalized:
-            result[key] = normalized
-    return result
+def _looks_corrupted(value: str) -> bool:
+    text = value.strip()
+    if not text:
+        return False
+    if any(marker in text for marker in _CORRUPTED_MARKERS):
+        return True
+    return text.startswith("{") and "}" in text
 
 
-def _parse_project_environment(raw: object) -> dict[str, str]:
-    if raw is None:
-        return {}
+def _validate_env_value(name: str, value: str) -> bool:
+    if name == "GIT_REPO_URL":
+        return value.startswith(("http://", "https://", "git@"))
+    if name == "NEO4J_URI":
+        return value.startswith(("bolt://", "neo4j://", "neo4j+s://", "neo4j+ssc://"))
+    if name == "GIT_REF":
+        return not _looks_corrupted(value) and len(value) <= 256
+    if name == "SOURCE_PATH":
+        return not _looks_corrupted(value)
+    return not _looks_corrupted(value) or name == "EXCLUDE_DIRS"
 
-    items: list[tuple[object, object]]
-    if isinstance(raw, dict):
-        items = list(raw.items())
-    elif isinstance(raw, str):
+
+def _normalize_env_value(name: str, value: str) -> str:
+    text = value.strip()
+    if name == "NEO4J_URI" and "://" not in text:
+        text = f"bolt://{text}"
+    return text
+
+
+def _env(name: str, default: str | None = None) -> str | None:
+    """Read a managed environment variable from os.environ."""
+    raw = os.environ.get(name)
+    if raw is not None:
         text = raw.strip()
-        if not text:
-            return {}
-        try:
-            parsed = json.loads(text)
-        except json.JSONDecodeError:
-            return _parse_key_value_lines(text)
-        if not isinstance(parsed, dict):
-            return {}
-        items = list(parsed.items())
-    else:
-        return {}
-
-    result: dict[str, str] = {}
-    for key, value in items:
-        key_str = str(key)
-        normalized = _normalize_env_value(key_str, value)
-        if normalized:
-            result[key_str] = normalized
-            continue
-        if key_str in MANAGED_ENV_VARS and value not in (None, "", {}):
-            if key_str in OPTIONAL_ENV_VARS and _looks_like_react_shell(value):
-                continue
-            print(
-                f"Warning: could not parse {key_str} from CML project environment "
-                f"(stored type={type(value).__name__}; CML Configuration UI may have "
-                "saved a React event object instead of your input)."
-            )
-    return result
-
-
-def _extract_raw_project_environment(project: object) -> object:
-    for attr in ("environment", "env", "environment_variables"):
-        if hasattr(project, attr):
-            raw = getattr(project, attr)
-            if raw:
-                return raw
-    to_dict = getattr(project, "to_dict", None)
-    if callable(to_dict):
-        data = to_dict()
-        if isinstance(data, dict):
-            for attr in ("environment", "env", "environment_variables"):
-                raw = data.get(attr)
-                if raw:
-                    return raw
-    return None
-
-
-def _load_local_env_file() -> dict[str, str]:
-    for root in _project_root_candidates():
-        for filename in LOCAL_ENV_FILENAMES:
-            path = root / filename
-            if not path.is_file():
-                continue
-            parsed = _parse_key_value_lines(path.read_text(encoding="utf-8"))
-            if parsed:
-                print(f"Loaded configuration overrides from {path}")
-            return parsed
-    return {}
-
-
-def _merge_project_environments(*sources: dict[str, str]) -> dict[str, str]:
-    merged: dict[str, str] = {}
-    for source in sources:
-        for key, value in source.items():
-            if key in MANAGED_ENV_VARS and value:
-                merged[key] = value
-    return merged
-
-
-def _sync_project_environment_to_cml(updates: dict[str, str]) -> None:
-    """Write plain-string overrides back to CML project.environment."""
-    if not updates or not _in_cml_runtime():
-        return
-
-    try:
-        import cmlapi
-    except ImportError:
-        return
-
-    project_id = os.environ.get("CDSW_PROJECT_ID")
-    if not project_id:
-        return
-
-    try:
-        client = cmlapi.default_client()
-        project = client.get_project(project_id)
-        raw = _extract_raw_project_environment(project)
-        if isinstance(raw, dict):
-            merged: dict[str, object] = dict(raw)
-        elif isinstance(raw, str) and raw.strip().startswith("{"):
-            merged = json.loads(raw)
-            if not isinstance(merged, dict):
-                merged = {}
-        else:
-            merged = {}
-
-        for key, value in updates.items():
-            if key in MANAGED_ENV_VARS:
-                merged[key] = value
-
-        client.update_project(project_id, body={"environment": merged})
-        print(
-            "Synced configuration overrides to CML project environment: "
-            f"{sorted(updates.keys())}"
-        )
-    except Exception as exc:
-        print(f"Warning: could not sync configuration to CML project environment: {exc}")
-
-
-def _sanitize_managed_env() -> None:
-    """Drop corrupted placeholders from os.environ before resolving config."""
-    for key in MANAGED_ENV_VARS:
-        value = os.environ.get(key)
-        if value is None:
-            continue
-        normalized = _normalize_env_value(key, value)
-        if normalized is None:
-            if key in OPTIONAL_ENV_VARS and _looks_like_react_shell(value):
-                os.environ.pop(key, None)
-                continue
-            print(f"Warning: ignoring invalid {key} value from os.environ.")
-            os.environ.pop(key, None)
-        elif normalized != value:
-            os.environ[key] = normalized
-
-
-def _load_project_environment_from_cml() -> tuple[dict[str, str], dict[str, str]]:
-    """Return (values, sources) from CML project environment and local overrides."""
-    sources: dict[str, str] = {}
-
-    project_id = os.environ.get("CDSW_PROJECT_ID")
-    if not project_id:
-        local_env = _load_local_env_file()
-        for key in local_env:
-            sources[key] = "amp.local.env"
-        return local_env, sources
-
-    try:
-        import cmlapi
-    except ImportError:
-        local_env = _load_local_env_file()
-        for key in local_env:
-            sources[key] = "amp.local.env"
-        return local_env, sources
-
-    try:
-        client = cmlapi.default_client()
-        project = client.get_project(project_id)
-        cml_env = _parse_project_environment(_extract_raw_project_environment(project))
-        for key in cml_env:
-            sources[key] = "CML project environment"
-
-        local_env = _load_local_env_file()
-        if local_env:
-            _sync_project_environment_to_cml(local_env)
-
-        project_env = _merge_project_environments(cml_env, local_env)
-        for key in local_env:
-            sources[key] = "amp.local.env"
-
-        for key, value in project_env.items():
-            if key in MANAGED_ENV_VARS:
-                os.environ[key] = value
-        return project_env, sources
-    except Exception as exc:
-        print(f"Warning: could not load CML project environment: {exc}")
-        local_env = _load_local_env_file()
-        for key in local_env:
-            sources[key] = "amp.local.env"
-        return local_env, sources
-
-
-def _env(
-    name: str,
-    project_env: dict[str, str] | None = None,
-    default: str | None = None,
-    config_sources: dict[str, str] | None = None,
-) -> str | None:
-    """Resolve an env var. CML project environment wins over os.environ."""
-    value, _source = _resolve_env_value(name, project_env, default, config_sources)
-    return value
-
-
-def _resolve_env_value(
-    name: str,
-    project_env: dict[str, str] | None = None,
-    default: str | None = None,
-    config_sources: dict[str, str] | None = None,
-) -> tuple[str | None, str]:
-    """Return (value, source). Mirrors the resolution order used by Config.from_env."""
-    if project_env and name in project_env:
-        value = project_env[name].strip()
-        if value:
-            source = (config_sources or {}).get(name, "CML project environment")
-            return value, source
-
-    normalized = _normalize_env_value(name, os.environ.get(name))
-    if normalized:
-        return normalized, "os.environ"
+        if text:
+            if _looks_corrupted(text):
+                print(
+                    f"Warning: ignoring corrupted {name} in os.environ "
+                    "(React event object; set a plain string in "
+                    "Project Settings > Advanced > Environment Variables)."
+                )
+                return default
+            normalized = _normalize_env_value(name, text)
+            if _validate_env_value(name, normalized):
+                return normalized
+            print(f"Warning: ignoring invalid {name} in os.environ.")
+            return default
 
     if default is not None and default.strip():
-        return default.strip(), "code default"
+        return default.strip()
 
-    metadata_default = METADATA_DEFAULTS.get(name)
-    if metadata_default and metadata_default.strip():
-        if _in_cml_runtime() and name in CML_USER_SUPPLIED_VARS:
-            return None, "missing"
-        return metadata_default.strip(), "metadata default"
-    return None, "missing"
-
-
-def _resolve_env(
-    name: str,
-    project_env: dict[str, str] | None = None,
-    config_sources: dict[str, str] | None = None,
-) -> tuple[str | None, str]:
-    """Return (value, source) for diagnostics."""
-    return _resolve_env_value(name, project_env, config_sources=config_sources)
+    if not _in_cml_runtime():
+        metadata_default = METADATA_DEFAULTS.get(name)
+        if metadata_default and metadata_default.strip():
+            return metadata_default.strip()
+    return None
 
 
 def _mask_value(name: str, value: str) -> str:
@@ -447,29 +106,27 @@ def _mask_value(name: str, value: str) -> str:
     return value
 
 
-def diagnose_environment(
-    project_env: dict[str, str] | None = None,
-    config_sources: dict[str, str] | None = None,
-) -> None:
-    """Print values visible in os.environ for troubleshooting."""
-    if project_env is None or config_sources is None:
-        project_env, config_sources = _load_project_environment_from_cml()
+def diagnose_environment() -> None:
+    """Print managed environment variables visible in os.environ."""
     print("=== Environment variable diagnostic ===")
     print(
-        "AMP Configuration is stored in CML project environment variables "
-        "(Project Settings > Advanced). The Configuration UI may save React event "
-        "objects for edited fields; use amp.local.env or Project Settings if a value is MISSING."
+        "AMP Configuration values are stored as CML project environment variables "
+        "and injected into os.environ at task startup "
+        "(Project Settings > Advanced > Environment Variables)."
     )
-    if project_env:
-        print(f"Resolved configuration keys: {sorted(project_env.keys())}")
-    else:
-        print("Resolved configuration keys: (none)")
     for name in MANAGED_ENV_VARS:
-        value, source = _resolve_env(name, project_env, config_sources)
-        if value is None:
-            print(f"  {name}: MISSING")
+        raw = os.environ.get(name)
+        if raw is None or not str(raw).strip():
+            print(f"  {name}: MISSING in os.environ")
             continue
-        print(f"  {name}: SET ({_mask_value(name, value)}) [{source}]")
+        if _looks_corrupted(str(raw)):
+            print(f"  {name}: CORRUPTED (React event object in os.environ)")
+            continue
+        resolved = _env(name)
+        if resolved is None:
+            print(f"  {name}: INVALID in os.environ ({_mask_value(name, str(raw).strip())})")
+            continue
+        print(f"  {name}: SET ({_mask_value(name, resolved)}) [os.environ]")
     print(f"  CDSW_PROJECT_ID: {os.environ.get('CDSW_PROJECT_ID', 'MISSING')}")
     print("========================================")
 
@@ -505,27 +162,23 @@ class Config:
 
     @classmethod
     def from_env(cls) -> Config:
-        _sanitize_managed_env()
-        project_env, config_sources = _load_project_environment_from_cml()
-        diagnose_environment(project_env, config_sources)
+        diagnose_environment()
 
-        neo4j_uri = _env("NEO4J_URI", project_env, config_sources=config_sources)
+        neo4j_uri = _env("NEO4J_URI")
         if not neo4j_uri:
             raise ValueError(
-                "NEO4J_URI is required. The CML Configuration screen may not save edited "
-                "values correctly. Set NEO4J_URI in one of these places:\n"
-                "  1. Project Settings > Advanced > Environment Variables\n"
-                "  2. Project file amp.local.env (see amp.local.env.example)\n"
-                "Then run the 'Analyze and Ingest' AMP task."
+                "NEO4J_URI is required in os.environ. Set it in "
+                "Project Settings > Advanced > Environment Variables, then run the "
+                "'Analyze and Ingest' AMP task (do not re-run notebook cells manually)."
             )
 
-        source_path = _env("SOURCE_PATH", project_env, config_sources=config_sources)
-        git_repo_url = _env("GIT_REPO_URL", project_env, config_sources=config_sources)
+        source_path = _env("SOURCE_PATH")
+        git_repo_url = _env("GIT_REPO_URL")
 
         if not source_path and not git_repo_url:
             raise ValueError(
-                "GIT_REPO_URL is required when SOURCE_PATH is not set. Set it in AMP "
-                "Configuration, Project Settings > Advanced, or amp.local.env."
+                "GIT_REPO_URL is required when SOURCE_PATH is not set. Set it in "
+                "Project Settings > Advanced > Environment Variables."
             )
 
         if git_repo_url:
@@ -535,28 +188,22 @@ class Config:
             default_id = Path(source_path).name
             default_name = derive_project_name(default_id)
 
-        project_id = _env("PROJECT_ID", project_env, config_sources=config_sources) or default_id
-        project_name = _env("PROJECT_NAME", project_env, config_sources=config_sources) or default_name
-
         return cls(
             neo4j_uri=neo4j_uri,
-            neo4j_username=_env("NEO4J_USERNAME", project_env, "neo4j", config_sources) or "neo4j",
-            neo4j_password=_env("NEO4J_PASSWORD", project_env, "Neo4jPass1234", config_sources)
-            or "Neo4jPass1234",
+            neo4j_username=_env("NEO4J_USERNAME", "neo4j") or "neo4j",
+            neo4j_password=_env("NEO4J_PASSWORD", "Neo4jPass1234") or "Neo4jPass1234",
             git_repo_url=git_repo_url,
-            git_ref=_env("GIT_REF", project_env, config_sources=config_sources) or METADATA_DEFAULTS["GIT_REF"],
-            clone_dir=_env("CLONE_DIR", project_env, "/tmp/source", config_sources) or "/tmp/source",
+            git_ref=_env("GIT_REF", METADATA_DEFAULTS["GIT_REF"]) or METADATA_DEFAULTS["GIT_REF"],
+            clone_dir=_env("CLONE_DIR", "/tmp/source") or "/tmp/source",
             source_path=source_path,
-            project_id=project_id,
-            project_name=project_name,
+            project_id=_env("PROJECT_ID") or default_id,
+            project_name=_env("PROJECT_NAME") or default_name,
             exclude_dirs=tuple(
                 part.strip()
                 for part in (
                     _env(
                         "EXCLUDE_DIRS",
-                        project_env,
                         ".git,target,node_modules,venv,.venv,dist,build,__pycache__,.m2",
-                        config_sources,
                     )
                     or ".git,target,node_modules,venv,.venv,dist,build,__pycache__,.m2"
                 ).split(",")
@@ -584,15 +231,3 @@ class Config:
         else:
             lines.append(f"git_repo_url={self.git_repo_url}")
         return ", ".join(lines)
-
-    @classmethod
-    def env_sources(cls, project_env: dict[str, str] | None = None) -> dict[str, str]:
-        """Return where each managed variable was resolved from."""
-        config_sources: dict[str, str] = {}
-        if project_env is None:
-            project_env, config_sources = _load_project_environment_from_cml()
-        sources: dict[str, str] = {}
-        for name in MANAGED_ENV_VARS:
-            _, source = _resolve_env_value(name, project_env, config_sources=config_sources)
-            sources[name] = source
-        return sources
