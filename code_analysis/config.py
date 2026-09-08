@@ -25,13 +25,13 @@ MANAGED_ENV_VARS: tuple[str, ...] = (
 
 SENSITIVE_ENV_VARS: frozenset[str] = frozenset({"NEO4J_PASSWORD"})
 
-# Local-dev fallbacks only; CML values come from Project Settings > Environment Variables.
+# Local-dev fallbacks; aligned with .project-metadata.yaml environment_variables.default.
 METADATA_DEFAULTS: dict[str, str] = {
     "GIT_REPO_URL": "https://github.com/terasolunaorg/terasoluna-tourreservation-mybatis3",
     "GIT_REF": "release/5.7.1.SP1.RELEASE",
     "NEO4J_URI": "",
     "NEO4J_USERNAME": "neo4j",
-    "NEO4J_PASSWORD": "Neo4jPass1234",
+    "NEO4J_PASSWORD": "",
     "CLONE_DIR": "/tmp/source",
     "EXCLUDE_DIRS": ".git,target,node_modules,venv,.venv,dist,build,__pycache__,.m2",
 }
@@ -283,7 +283,7 @@ class Config:
         return cls(
             neo4j_uri=neo4j_uri,
             neo4j_username=_env("NEO4J_USERNAME", "neo4j") or "neo4j",
-            neo4j_password=_env("NEO4J_PASSWORD", "Neo4jPass1234") or "Neo4jPass1234",
+            neo4j_password=_env("NEO4J_PASSWORD", "") or "",
             git_repo_url=git_repo_url,
             git_ref=_env("GIT_REF", METADATA_DEFAULTS["GIT_REF"]) or METADATA_DEFAULTS["GIT_REF"],
             clone_dir=_env("CLONE_DIR", "/tmp/source") or "/tmp/source",
