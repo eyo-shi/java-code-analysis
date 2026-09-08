@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 from dataclasses import dataclass
@@ -70,6 +71,45 @@ def _normalize_env_value(name: str, value: str) -> str:
     return text
 
 
+def read_cml_project_env(name: str) -> str | None:
+    """Read a value from CML project environment variables (SKILL section 2)."""
+    project_id = os.environ.get("CDSW_PROJECT_ID")
+    if not project_id:
+        return None
+
+    try:
+        import cmlapi
+    except ImportError:
+        return None
+
+    try:
+        project = cmlapi.default_client().get_project(project_id)
+        raw_env = getattr(project, "environment", None)
+        if raw_env is None:
+            return None
+        if isinstance(raw_env, str):
+            parsed = json.loads(raw_env)
+        elif isinstance(raw_env, dict):
+            parsed = raw_env
+        else:
+            return None
+        if not isinstance(parsed, dict):
+            return None
+        return parse_env_value(name, parsed.get(name))
+    except Exception as exc:
+        print(f"Warning: could not read {name} from CML project environment: {exc}")
+        return None
+
+
+def is_metadata_default(name: str, value: str) -> bool:
+    default = METADATA_DEFAULTS.get(name)
+    if not default:
+        return False
+    parsed = parse_env_value(name, value)
+    parsed_default = parse_env_value(name, default)
+    return parsed is not None and parsed == parsed_default
+
+
 def parse_env_value(name: str, raw: object) -> str | None:
     """Parse a raw project environment value into a plain string."""
     if raw is None:
@@ -86,7 +126,12 @@ def parse_env_value(name: str, raw: object) -> str | None:
 
 
 def _env(name: str, default: str | None = None) -> str | None:
-    """Read a managed environment variable from os.environ."""
+    """Read a managed environment variable (project env first in CML, then os.environ)."""
+    if _in_cml_runtime():
+        from_project = read_cml_project_env(name)
+        if from_project:
+            return from_project
+
     raw = os.environ.get(name)
     if raw is not None:
         text = raw.strip()
@@ -132,17 +177,40 @@ def diagnose_environment() -> None:
     )
     for name in MANAGED_ENV_VARS:
         raw = os.environ.get(name)
-        if raw is None or not str(raw).strip():
-            print(f"  {name}: MISSING in os.environ")
-            continue
-        if _looks_corrupted(str(raw)):
-            print(f"  {name}: CORRUPTED (React event object in os.environ)")
-            continue
+        from_project = read_cml_project_env(name) if _in_cml_runtime() else None
         resolved = _env(name)
+
         if resolved is None:
-            print(f"  {name}: INVALID in os.environ ({_mask_value(name, str(raw).strip())})")
+            if raw is None or not str(raw).strip():
+                if from_project is None:
+                    print(f"  {name}: MISSING")
+                else:
+                    print(f"  {name}: INVALID")
+            elif _looks_corrupted(str(raw)):
+                print(f"  {name}: CORRUPTED (React event object in os.environ)")
+            else:
+                print(f"  {name}: INVALID ({_mask_value(name, str(raw).strip())})")
             continue
-        print(f"  {name}: SET ({_mask_value(name, resolved)}) [os.environ]")
+
+        source = "CML project environment" if from_project == resolved else "os.environ"
+        if (
+            from_project
+            and raw
+            and str(raw).strip()
+            and not _looks_corrupted(str(raw))
+            and from_project != parse_env_value(name, str(raw))
+        ):
+            print(
+                f"  {name}: SET ({_mask_value(name, resolved)}) [{source}; "
+                f"os.environ has {_mask_value(name, str(raw).strip())}]"
+            )
+        elif is_metadata_default(name, resolved):
+            print(
+                f"  {name}: SET ({_mask_value(name, resolved)}) [metadata default; "
+                "update in Project Settings > Advanced > Environment Variables]"
+            )
+        else:
+            print(f"  {name}: SET ({_mask_value(name, resolved)}) [{source}]")
     print(f"  CDSW_PROJECT_ID: {os.environ.get('CDSW_PROJECT_ID', 'MISSING')}")
     print("========================================")
 

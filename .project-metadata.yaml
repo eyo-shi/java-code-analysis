@@ -10,7 +10,7 @@ description: |
 
 author: Cloudera Inc.
 specification_version: 1.0
-prototype_version: 3.2
+prototype_version: 3.3
 date: "2026-03-07"
 
 environment_variables:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import unittest
+from unittest.mock import patch
 
 from code_analysis.config import (
     MANAGED_ENV_VARS,
@@ -65,6 +66,12 @@ class ConfigEnvResolutionTests(unittest.TestCase):
 
     def test_metadata_defaults_used_outside_cml(self) -> None:
         self.assertEqual(_env("GIT_REF", METADATA_DEFAULTS["GIT_REF"]), "release/5.7.1.SP1.RELEASE")
+
+    def test_reads_from_project_env_in_cml(self) -> None:
+        os.environ["CDSW_PROJECT_ID"] = "proj-123"
+        os.environ["NEO4J_URI"] = METADATA_DEFAULTS["NEO4J_URI"]
+        with patch("code_analysis.config.read_cml_project_env", return_value="bolt://user-neo4j:7687"):
+            self.assertEqual(_env("NEO4J_URI"), "bolt://user-neo4j:7687")
 
     def test_no_metadata_default_for_neo4j_in_cml(self) -> None:
         os.environ["CDSW_PROJECT_ID"] = "proj-123"

@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import json
 import os
 
 from code_analysis.config import (
-    MANAGED_ENV_VARS,
     METADATA_DEFAULTS,
+    is_metadata_default,
     parse_env_value,
+    read_cml_project_env,
 )
 
 
@@ -27,58 +27,29 @@ def _cml_bootstrap_client():
     return CMLBootstrap(host, username, api_key, project_name)
 
 
-def _read_from_project_environment(name: str) -> str | None:
-    """Read a value from CML project environment variables (SKILL section 2)."""
-    project_id = os.environ.get("CDSW_PROJECT_ID")
-    if not project_id:
-        return None
-
-    try:
-        import cmlapi
-    except ImportError:
-        return None
-
-    try:
-        project = cmlapi.default_client().get_project(project_id)
-        raw_env = getattr(project, "environment", None)
-        if raw_env is None:
-            return None
-        if isinstance(raw_env, str):
-            parsed = json.loads(raw_env)
-        elif isinstance(raw_env, dict):
-            parsed = raw_env
-        else:
-            return None
-        if not isinstance(parsed, dict):
-            return None
-        return parse_env_value(name, parsed.get(name))
-    except Exception as exc:
-        print(f"Warning: could not read {name} from CML project environment: {exc}")
-        return None
-
-
 def resolve_managed_env_value(name: str) -> tuple[str | None, str]:
     """
     Resolve a managed variable in SKILL order:
-    1. os.environ (injected at task startup)
-    2. CML project environment variables
-    3. .project-metadata.yaml default
+    1. CML project environment variables (Configuration / Project Settings)
+    2. os.environ (injected at task startup)
+    3. .project-metadata.yaml default (local dev only)
     """
+    from_project = read_cml_project_env(name)
+    if from_project:
+        return from_project, "CML project environment"
+
     raw = os.environ.get(name)
     if raw is not None:
         parsed = parse_env_value(name, raw)
         if parsed:
             return parsed, "os.environ"
 
-    from_project = _read_from_project_environment(name)
-    if from_project:
-        return from_project, "CML project environment"
-
-    metadata_default = METADATA_DEFAULTS.get(name, "").strip()
-    if metadata_default:
-        parsed = parse_env_value(name, metadata_default)
-        if parsed:
-            return parsed, "metadata default"
+    if not os.environ.get("CDSW_PROJECT_ID"):
+        metadata_default = METADATA_DEFAULTS.get(name, "").strip()
+        if metadata_default:
+            parsed = parse_env_value(name, metadata_default)
+            if parsed:
+                return parsed, "metadata default"
 
     return None, "missing"
 
@@ -101,12 +72,25 @@ def ensure_project_environment() -> dict[str, str]:
         )
 
     updates = {"NEO4J_URI": neo4j_uri}
+    os.environ["NEO4J_URI"] = neo4j_uri
+
+    if source == "CML project environment":
+        print(
+            "Bootstrap: NEO4J_URI already set in CML project environment "
+            f"({neo4j_uri})"
+        )
+        return updates
+
+    if source == "metadata default" or is_metadata_default("NEO4J_URI", neo4j_uri):
+        print(
+            "WARNING: NEO4J_URI is using the metadata default "
+            f"({neo4j_uri}). Set your actual Bolt URI in "
+            "Project Settings > Advanced > Environment Variables, then re-run Bootstrap."
+        )
+        return updates
+
     cml = _cml_bootstrap_client()
     cml.create_environment_variable(updates)
-    for key, value in updates.items():
-        if key in MANAGED_ENV_VARS:
-            os.environ[key] = value
-
     print(
         f"Bootstrap: persisted project environment variables from {source}: "
         f"{sorted(updates.keys())}"
