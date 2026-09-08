@@ -5,12 +5,12 @@ description: |
   (neo4j-launcher, local Neo4j, Neo4j Aura, etc.).
 
   Set environment variables in AMP Configuration at deploy time, or update them later
-  in Project Settings > Advanced > Environment Variables. Values are injected into
-  os.environ when each AMP task starts.
+  in Project Settings > Advanced > Environment Variables. Run the Bootstrap task to
+  persist NEO4J_URI via create_environment_variable (Churn AMP pattern).
 
 author: Cloudera Inc.
 specification_version: 1.0
-prototype_version: 3.0
+prototype_version: 3.1
 date: "2026-03-07"
 
 environment_variables:
@@ -57,9 +57,9 @@ runtimes:
 
 tasks:
   - type: run_session
-    name: Install Dependencies
-    script: 0_session-install-dependencies/install-dependencies.py
-    short_summary: Install Python dependencies
+    name: Bootstrap
+    script: 0_session-bootstrap/bootstrap.py
+    short_summary: Install dependencies and persist NEO4J_URI to project environment
     kernel: python3
     cpu: 2
     memory: 4

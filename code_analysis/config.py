@@ -168,8 +168,9 @@ class Config:
         if not neo4j_uri:
             raise ValueError(
                 "NEO4J_URI is required in os.environ. Set it in "
-                "Project Settings > Advanced > Environment Variables, then run the "
-                "'Analyze and Ingest' AMP task (do not re-run notebook cells manually)."
+                "Project Settings > Advanced > Environment Variables, or edit "
+                "NEO4J_URI_OVERRIDE in 0_session-bootstrap/bootstrap.py, then run "
+                "the 'Bootstrap' AMP task before 'Analyze and Ingest'."
             )
 
         source_path = _env("SOURCE_PATH")
