@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlparse
 
-# Keys defined in .project-metadata.yaml environment_variables.
+# Environment variables read from CML project settings (os.environ at job runtime).
 MANAGED_ENV_VARS: tuple[str, ...] = (
     "GIT_REPO_URL",
     "GIT_REF",
@@ -25,7 +25,7 @@ MANAGED_ENV_VARS: tuple[str, ...] = (
 
 SENSITIVE_ENV_VARS: frozenset[str] = frozenset({"NEO4J_PASSWORD"})
 
-# Defaults aligned with .project-metadata.yaml environment_variables.default.
+# Local-dev fallbacks only; CML values come from Project Settings > Environment Variables.
 METADATA_DEFAULTS: dict[str, str] = {
     "GIT_REPO_URL": "https://github.com/terasolunaorg/terasoluna-tourreservation-mybatis3",
     "GIT_REF": "release/5.7.1.SP1.RELEASE",
@@ -180,9 +180,8 @@ def diagnose_environment() -> None:
     """Print managed environment variables visible in os.environ."""
     print("=== Environment variable diagnostic ===")
     print(
-        "AMP Configuration values are stored as CML project environment variables "
-        "and injected into os.environ at task startup "
-        "(Project Settings > Advanced > Environment Variables)."
+        "Managed environment variables are set in "
+        "Project Settings > Advanced > Environment Variables."
     )
     for name in MANAGED_ENV_VARS:
         raw = os.environ.get(name)

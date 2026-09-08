@@ -9,54 +9,8 @@ description: |
 
 author: Cloudera Inc.
 specification_version: 1.0
-prototype_version: 3.8
+prototype_version: 3.9
 date: "2026-03-07"
-
-environment_variables:
-  GIT_REPO_URL:
-    default: "https://github.com/terasolunaorg/terasoluna-tourreservation-mybatis3"
-    description: |
-      Git repository URL to clone and analyze.
-      Required unless SOURCE_PATH is set.
-      Set in Project Settings > Advanced > Environment Variables after deploy.
-  GIT_REF:
-    default: "release/5.7.1.SP1.RELEASE"
-    description: "Git branch or tag to clone (e.g. release/5.7.1.SP1.RELEASE, master)"
-  NEO4J_URI:
-    default: ""
-    description: |
-      Bolt URI of the target Neo4j instance (required).
-      For CML neo4j-launcher, copy Internal Bolt from the Application Log, e.g.
-        bolt://cml-neo4j-<hash>.mlx-user-<id>:7687
-      Do not use ELB, External Bolt, or *.cloudera.site URLs.
-  NEO4J_INTERNAL_URI:
-    default: ""
-    description: |
-      Optional alias for Internal Bolt from neo4j-launcher Application Log.
-      Used before NEO4J_URI when both are set.
-  NEO4J_USERNAME:
-    default: "neo4j"
-    description: "Neo4j username (usually neo4j)"
-  NEO4J_PASSWORD:
-    default: "Neo4jPass1234"
-    description: |
-      Neo4j password. For neo4j-launcher, copy the password from the launcher
-      startup screen (not this default).
-  CLONE_DIR:
-    default: "/tmp/source"
-    description: "Directory to clone the source repository into"
-  SOURCE_PATH:
-    default: ""
-    description: "When set, skip git clone and analyze this local path instead"
-  PROJECT_ID:
-    default: ""
-    description: "Neo4j project identifier for re-ingestion. Defaults to the repository name."
-  PROJECT_NAME:
-    default: ""
-    description: "Display name stored on the Project node. Defaults to a title derived from the repository name."
-  EXCLUDE_DIRS:
-    default: ".git,target,node_modules,venv,.venv,dist,build,__pycache__,.m2"
-    description: "Comma-separated directory names to exclude from analysis"
 
 runtimes:
   - editor: PBJ Workbench

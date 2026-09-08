@@ -32,14 +32,14 @@ class CmlBootstrapTests(unittest.TestCase):
         self.assertEqual(source, "os.environ")
 
     def test_resolve_from_metadata_default_outside_cml(self) -> None:
-        value, source = resolve_managed_env_value("NEO4J_URI")
-        self.assertEqual(value, METADATA_DEFAULTS["NEO4J_URI"])
+        value, source = resolve_managed_env_value("GIT_REF")
+        self.assertEqual(value, METADATA_DEFAULTS["GIT_REF"])
         self.assertEqual(source, "metadata default")
 
     @patch("code_analysis.cml_bootstrap.read_cml_project_env")
     def test_resolve_prefers_project_env_over_os_environ(self, mock_read: MagicMock) -> None:
         os.environ["CDSW_PROJECT_ID"] = "proj-123"
-        os.environ["NEO4J_URI"] = METADATA_DEFAULTS["NEO4J_URI"]
+        os.environ["NEO4J_URI"] = "bolt://from-env:7687"
         mock_read.return_value = "bolt://from-project:7687"
         value, source = resolve_managed_env_value("NEO4J_URI")
         self.assertEqual(value, "bolt://from-project:7687")
@@ -59,10 +59,9 @@ class CmlBootstrapTests(unittest.TestCase):
         self.assertEqual(os.environ["NEO4J_URI"], "bolt://persist.example:7687")
 
     @patch("code_analysis.cml_bootstrap._cml_bootstrap_client")
-    def test_ensure_does_not_persist_metadata_default(self, mock_client_factory: MagicMock) -> None:
-        os.environ["NEO4J_URI"] = METADATA_DEFAULTS["NEO4J_URI"]
-        updates = ensure_project_environment()
-        self.assertEqual(updates["NEO4J_URI"], METADATA_DEFAULTS["NEO4J_URI"])
+    def test_ensure_requires_neo4j_uri(self, mock_client_factory: MagicMock) -> None:
+        with self.assertRaises(ValueError):
+            ensure_project_environment()
         mock_client_factory.assert_not_called()
 
     @patch("code_analysis.cml_bootstrap._cml_bootstrap_client")
@@ -71,7 +70,7 @@ class CmlBootstrapTests(unittest.TestCase):
         self, mock_read: MagicMock, mock_client_factory: MagicMock
     ) -> None:
         mock_read.return_value = "bolt://from-project:7687"
-        os.environ["NEO4J_URI"] = METADATA_DEFAULTS["NEO4J_URI"]
+        os.environ["NEO4J_URI"] = "bolt://from-env:7687"
 
         updates = ensure_project_environment()
         self.assertEqual(updates["NEO4J_URI"], "bolt://from-project:7687")
