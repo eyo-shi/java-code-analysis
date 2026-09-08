@@ -29,7 +29,7 @@ SENSITIVE_ENV_VARS: frozenset[str] = frozenset({"NEO4J_PASSWORD"})
 METADATA_DEFAULTS: dict[str, str] = {
     "GIT_REPO_URL": "https://github.com/terasolunaorg/terasoluna-tourreservation-mybatis3",
     "GIT_REF": "release/5.7.1.SP1.RELEASE",
-    "NEO4J_URI": "bolt://neo4j-launcher:7687",
+    "NEO4J_URI": "",
     "NEO4J_USERNAME": "neo4j",
     "NEO4J_PASSWORD": "Neo4jPass1234",
     "CLONE_DIR": "/tmp/source",

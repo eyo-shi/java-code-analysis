@@ -9,7 +9,7 @@ description: |
 
 author: Cloudera Inc.
 specification_version: 1.0
-prototype_version: 3.6
+prototype_version: 3.8
 date: "2026-03-07"
 
 environment_variables:
@@ -23,14 +23,17 @@ environment_variables:
     default: "release/5.7.1.SP1.RELEASE"
     description: "Git branch or tag to clone (e.g. release/5.7.1.SP1.RELEASE, master)"
   NEO4J_URI:
-    default: "bolt://neo4j-launcher:7687"
+    default: ""
     description: |
       Bolt URI of the target Neo4j instance (required).
-      For CML neo4j-launcher from a job, use the in-cluster service name:
-        bolt://neo4j-launcher-<id>:7687
-      Do not use the browser URL (*.cloudera.site). Copy <id> from the launcher
-      application hostname (neo4j-launcher-<id>.ml....cloudera.site).
-      Use the password shown when neo4j-launcher was started.
+      For CML neo4j-launcher, copy Internal Bolt from the Application Log, e.g.
+        bolt://cml-neo4j-<hash>.mlx-user-<id>:7687
+      Do not use ELB, External Bolt, or *.cloudera.site URLs.
+  NEO4J_INTERNAL_URI:
+    default: ""
+    description: |
+      Optional alias for Internal Bolt from neo4j-launcher Application Log.
+      Used before NEO4J_URI when both are set.
   NEO4J_USERNAME:
     default: "neo4j"
     description: "Neo4j username (usually neo4j)"

@@ -38,15 +38,17 @@
 
 **CML + neo4j-launcher の場合:**
 
+1. neo4j-launcher の **Application Log** を開く
+2. **Internal Bolt** の値をコピー（例: `bolt://cml-neo4j-10xfi5ukxwfadjsr.mlx-user-98:7687`）
+3. Project Settings → Advanced → Environment Variables に設定:
+
 ```
-GIT_REPO_URL=https://github.com/terasolunaorg/terasoluna-tourreservation-mybatis3
-GIT_REF=release/5.7.1.SP1.RELEASE
-NEO4J_URI=bolt://neo4j-launcher-<id>:7687
+NEO4J_URI=bolt://cml-neo4j-10xfi5ukxwfadjsr.mlx-user-98:7687
 NEO4J_USERNAME=neo4j
 NEO4J_PASSWORD=<neo4j-launcher起動時のパスワード>
 ```
 
-`<id>` は neo4j-launcher のブラウザ URL（`neo4j-launcher-<id>.ml....cloudera.site`）から取得します。`*.cloudera.site` はブラウザ用で、ジョブからの Bolt 接続には使えません。
+ELB・External Bolt・`*.cloudera.site` はジョブからは使えません。
 
 **ローカル Neo4j の場合:**
 
@@ -62,7 +64,7 @@ NEO4J_PASSWORD=your-password
 
 | 接続先 | `NEO4J_URI` の例 |
 |--------|------------------|
-| neo4j-launcher（CML 内） | `bolt://neo4j-launcher-<id>:7687`（クラスタ内サービス名） |
+| neo4j-launcher（CML 内） | Application Log の Internal Bolt（`bolt://cml-neo4j-*.mlx-user-*:7687`） |
 | ローカル Neo4j | `bolt://localhost:7687` |
 | Neo4j Aura | `neo4j+s://xxxxx.databases.neo4j.io` |
 | リモート Neo4j | `bolt://hostname:7687` |
