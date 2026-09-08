@@ -9,7 +9,7 @@ description: |
 
 author: Cloudera Inc.
 specification_version: 1.0
-prototype_version: 2.3
+prototype_version: 2.6
 date: "2026-03-07"
 
 environment_variables:
@@ -22,8 +22,12 @@ environment_variables:
     default: "release/5.7.1.SP1.RELEASE"
     description: "Git branch or tag to clone (e.g. release/5.7.1.SP1.RELEASE, master)"
   NEO4J_URI:
-    default: "bolt://localhost:7687"
-    description: "Bolt URI of the target Neo4j instance (e.g. bolt://localhost:7687, neo4j+s://... for Aura)."
+    default: ""
+    description: |
+      Bolt URI of the target Neo4j instance (required).
+      CML + neo4j-launcher: bolt://cml-neo4j-xxxxx.namespace:7687
+      Local Neo4j: bolt://localhost:7687
+      Neo4j Aura: neo4j+s://xxxxx.databases.neo4j.io
   NEO4J_USERNAME:
     default: "neo4j"
     description: "Neo4j username"
