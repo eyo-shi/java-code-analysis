@@ -6,9 +6,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-# Edit in the CML file editor when NEO4J_URI is not set via Project Environment Variables.
-NEO4J_URI_OVERRIDE = ""
-
 
 def _project_root() -> Path:
     try:
@@ -32,5 +29,5 @@ print(subprocess.run(["sh 0_session-install-dependencies/setup.sh"], shell=True,
 from code_analysis.cml_bootstrap import ensure_project_environment
 from code_analysis.config import diagnose_environment
 
-ensure_project_environment(neo4j_uri_override=NEO4J_URI_OVERRIDE or None)
+ensure_project_environment()
 diagnose_environment()

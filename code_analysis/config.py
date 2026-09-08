@@ -24,10 +24,11 @@ MANAGED_ENV_VARS: tuple[str, ...] = (
 
 SENSITIVE_ENV_VARS: frozenset[str] = frozenset({"NEO4J_PASSWORD"})
 
-# Defaults aligned with .project-metadata.yaml (local development fallback only).
+# Defaults aligned with .project-metadata.yaml environment_variables.default.
 METADATA_DEFAULTS: dict[str, str] = {
     "GIT_REPO_URL": "https://github.com/terasolunaorg/terasoluna-tourreservation-mybatis3",
     "GIT_REF": "release/5.7.1.SP1.RELEASE",
+    "NEO4J_URI": "bolt://neo4j-launcher:7687",
     "NEO4J_USERNAME": "neo4j",
     "NEO4J_PASSWORD": "Neo4jPass1234",
     "CLONE_DIR": "/tmp/source",
@@ -67,6 +68,21 @@ def _normalize_env_value(name: str, value: str) -> str:
     if name == "NEO4J_URI" and "://" not in text:
         text = f"bolt://{text}"
     return text
+
+
+def parse_env_value(name: str, raw: object) -> str | None:
+    """Parse a raw project environment value into a plain string."""
+    if raw is None:
+        return None
+    if not isinstance(raw, str):
+        return None
+    text = raw.strip()
+    if not text or _looks_corrupted(text):
+        return None
+    normalized = _normalize_env_value(name, text)
+    if _validate_env_value(name, normalized):
+        return normalized
+    return None
 
 
 def _env(name: str, default: str | None = None) -> str | None:
@@ -167,10 +183,8 @@ class Config:
         neo4j_uri = _env("NEO4J_URI")
         if not neo4j_uri:
             raise ValueError(
-                "NEO4J_URI is required in os.environ. Set it in "
-                "Project Settings > Advanced > Environment Variables, or edit "
-                "NEO4J_URI_OVERRIDE in 0_session-bootstrap/bootstrap.py, then run "
-                "the 'Bootstrap' AMP task before 'Analyze and Ingest'."
+                "NEO4J_URI is required in os.environ. Run the 'Bootstrap' AMP task first, "
+                "and set NEO4J_URI in Project Settings > Advanced > Environment Variables."
             )
 
         source_path = _env("SOURCE_PATH")

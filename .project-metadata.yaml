@@ -10,7 +10,7 @@ description: |
 
 author: Cloudera Inc.
 specification_version: 1.0
-prototype_version: 3.1
+prototype_version: 3.2
 date: "2026-03-07"
 
 environment_variables:
@@ -23,10 +23,10 @@ environment_variables:
     default: "release/5.7.1.SP1.RELEASE"
     description: "Git branch or tag to clone (e.g. release/5.7.1.SP1.RELEASE, master)"
   NEO4J_URI:
-    default: ""
+    default: "bolt://neo4j-launcher:7687"
     description: |
       Bolt URI of the target Neo4j instance (required).
-      Set at deploy time or in Project Settings > Advanced > Environment Variables.
+      Update in Project Settings > Advanced > Environment Variables after deploy.
       Example: bolt://cml-neo4j-xxxxx.namespace:7687
   NEO4J_USERNAME:
     default: "neo4j"
