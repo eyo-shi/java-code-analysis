@@ -25,18 +25,55 @@ MANAGED_ENV_VARS: tuple[str, ...] = (
 
 SENSITIVE_ENV_VARS: frozenset[str] = frozenset({"NEO4J_PASSWORD"})
 
-# Local-dev fallbacks; aligned with .project-metadata.yaml environment_variables.default.
-METADATA_DEFAULTS: dict[str, str] = {
+# Non-empty defaults for AMP deploy and Project Settings seeding (Churn AMP pattern).
+PROJECT_ENV_SEEDS: dict[str, str] = {
     "GIT_REPO_URL": "https://github.com/terasolunaorg/terasoluna-tourreservation-mybatis3",
     "GIT_REF": "release/5.7.1.SP1.RELEASE",
-    "NEO4J_URI": "",
+    "NEO4J_URI": "bolt://cml-neo4j-REPLACE_FROM_APPLICATION_LOG.mlx-user-0:7687",
     "NEO4J_USERNAME": "neo4j",
-    "NEO4J_PASSWORD": "",
+    "NEO4J_PASSWORD": "REPLACE_FROM_NEO4J_LAUNCHER",
     "CLONE_DIR": "/tmp/source",
+    "SOURCE_PATH": "-",
+    "PROJECT_ID": "-",
+    "PROJECT_NAME": "-",
     "EXCLUDE_DIRS": ".git,target,node_modules,venv,.venv,dist,build,__pycache__,.m2",
 }
 
+# Local-dev fallbacks; aligned with PROJECT_ENV_SEEDS / .project-metadata.yaml.
+METADATA_DEFAULTS: dict[str, str] = dict(PROJECT_ENV_SEEDS)
+
+OPTIONAL_UNSET_VALUE = "-"
+
 _CORRUPTED_MARKERS = ("dispatchConfig", "_dispatchListeners", "nativeEvent", "isTrusted")
+
+
+def _optional_env_value(name: str, value: str | None) -> str | None:
+    if value is None:
+        return None
+    if value.strip() == OPTIONAL_UNSET_VALUE:
+        return None
+    return value
+
+
+def validate_neo4j_uri_for_ingest(uri: str) -> None:
+    lowered = uri.lower()
+    if "replace_from_application_log" in lowered or "replace_from_neo4j" in lowered:
+        raise ValueError(
+            "NEO4J_URI is still the placeholder. Copy Internal Bolt from "
+            "neo4j-launcher Application Log into Project Settings > "
+            "Advanced > Environment Variables, e.g. "
+            "bolt://cml-neo4j-<hash>.mlx-user-<id>:7687"
+        )
+    if ".cloudera.site" in lowered:
+        raise ValueError(
+            "NEO4J_URI is a neo4j-launcher browser URL (*.cloudera.site), not Bolt. "
+            "Copy Internal Bolt from neo4j-launcher Application Log into Project Settings."
+        )
+    if ".elb.amazonaws.com" in lowered or ".amazonaws.com" in lowered:
+        raise ValueError(
+            "NEO4J_URI is an external ELB URL. Copy Internal Bolt from "
+            "neo4j-launcher Application Log into Project Settings."
+        )
 
 
 def _in_cml_runtime() -> bool:
@@ -264,7 +301,7 @@ class Config:
                 "then run the 'Analyze and Ingest' job."
             )
 
-        source_path = _env("SOURCE_PATH")
+        source_path = _optional_env_value("SOURCE_PATH", _env("SOURCE_PATH"))
         git_repo_url = _env("GIT_REPO_URL")
 
         if not source_path and not git_repo_url:
@@ -288,8 +325,8 @@ class Config:
             git_ref=_env("GIT_REF", METADATA_DEFAULTS["GIT_REF"]) or METADATA_DEFAULTS["GIT_REF"],
             clone_dir=_env("CLONE_DIR", "/tmp/source") or "/tmp/source",
             source_path=source_path,
-            project_id=_env("PROJECT_ID") or default_id,
-            project_name=_env("PROJECT_NAME") or default_name,
+            project_id=_optional_env_value("PROJECT_ID", _env("PROJECT_ID")) or default_id,
+            project_name=_optional_env_value("PROJECT_NAME", _env("PROJECT_NAME")) or default_name,
             exclude_dirs=tuple(
                 part.strip()
                 for part in (
@@ -304,8 +341,12 @@ class Config:
         )
 
     def validate_for_ingest(self) -> None:
-        if not self.neo4j_uri:
-            raise ValueError("NEO4J_URI is required")
+        validate_neo4j_uri_for_ingest(self.neo4j_uri)
+        if self.neo4j_password.strip() in {"", "REPLACE_FROM_NEO4J_LAUNCHER"}:
+            raise ValueError(
+                "NEO4J_PASSWORD is not set. Copy the password from neo4j-launcher "
+                "startup into Project Settings > Advanced > Environment Variables."
+            )
         if not self.source_path and not self.git_repo_url:
             raise ValueError("GIT_REPO_URL is required when SOURCE_PATH is not set")
         if not self.source_path and not self.git_ref:

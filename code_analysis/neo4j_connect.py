@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 _EXTERNAL_HOST_MARKERS = (
     ".cloudera.site",
     ".elb.amazonaws.com",
+    ".amazonaws.com",
 )
 
 
@@ -69,21 +70,22 @@ def iter_neo4j_connection_uris(
 
     if host and _is_cml_internal_neo4j_host(host):
         add_host(scheme, host)
+        # Fallback: the bare Kubernetes Service name inside the same project.
+        # Helps when the pod-hash portion of the Internal Bolt URI is stale
+        # (neo4j-launcher restarted since the URI was copied) but the Service
+        # itself is still reachable.
+        add_host("bolt", "neo4j-launcher")
         return ordered
 
-    if host.endswith(".cloudera.site") and "neo4j-launcher" in host:
-        add_host("bolt", host.split(".", 1)[0])
-
     if host and _is_external_neo4j_host(host):
-        add_host("bolt", "neo4j-launcher")
-        add_host("bolt", "neo4j")
+        return ordered
 
     if host:
         add_host(scheme, host)
         if scheme in {"bolt+ssc", "bolt+s", "neo4j+ssc", "neo4j+s"}:
             add_host("bolt", host)
 
-    if host and "neo4j-launcher" in host and not host.endswith(".cloudera.site"):
+    if host and "neo4j-launcher" in host:
         add_host("bolt", "neo4j-launcher")
 
     return ordered or [uri.strip()]
@@ -102,8 +104,7 @@ def format_neo4j_connection_help(configured_uri: str, errors: list[str]) -> str:
         "  1. neo4j-launcher application is Running (Applications page)\n"
         "  2. Copy Internal Bolt from neo4j-launcher Application Log into NEO4J_URI\n"
         f"     Example: {internal_example}\n"
-        "     Do not use ELB, External Bolt, or *.cloudera.site URLs from jobs\n"
+        "     Do not use browser URL (*.cloudera.site) or ELB URLs\n"
         "  3. NEO4J_PASSWORD is the password from neo4j-launcher startup\n"
-        "     (not the metadata default Neo4jPass1234)\n"
         "  4. NEO4J_USERNAME is usually neo4j"
     )

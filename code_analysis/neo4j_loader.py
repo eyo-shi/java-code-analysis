@@ -34,7 +34,11 @@ class Neo4jLoader:
 
     def verify_connectivity(self) -> None:
         errors: list[str] = []
-        for candidate in iter_neo4j_connection_uris(self._configured_uri):
+        candidates = iter_neo4j_connection_uris(self._configured_uri)
+        if not candidates:
+            raise ValueError(format_neo4j_connection_help(self._configured_uri, errors))
+
+        for candidate in candidates:
             if candidate != self._configured_uri:
                 print(f"Trying Neo4j URI: {candidate}")
             driver = self._connect(candidate)
