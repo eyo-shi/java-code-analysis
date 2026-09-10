@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import os
 
-from code_analysis.config import MANAGED_ENV_VARS, PROJECT_ENV_SEEDS, read_cml_project_env
+from code_analysis.config import (
+    MANAGED_ENV_VARS,
+    PROJECT_ENV_SEEDS,
+    parse_env_value,
+    read_cml_project_env,
+)
 
 
 def _cml_bootstrap_client():
@@ -37,6 +42,12 @@ def seed_project_environment() -> dict[str, str]:
     updates: dict[str, str] = {}
     for name in MANAGED_ENV_VARS:
         if read_cml_project_env(name):
+            continue
+        # AMP writes Config Project screen values into os.environ before the
+        # first job runs. Trust that value rather than overwriting it with the
+        # placeholder — otherwise we clobber user input whenever cmlapi is not
+        # importable at job runtime (read_cml_project_env returns None).
+        if parse_env_value(name, os.environ.get(name)):
             continue
         value = PROJECT_ENV_SEEDS.get(name, "").strip()
         if not value:
