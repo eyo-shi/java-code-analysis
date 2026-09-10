@@ -59,20 +59,20 @@ def validate_neo4j_uri_for_ingest(uri: str) -> None:
     lowered = uri.lower()
     if "replace_from_application_log" in lowered or "replace_from_neo4j" in lowered:
         raise ValueError(
-            "NEO4J_URI is still the placeholder. Copy Internal Bolt from "
+            "NEO4J_URI is still the placeholder. Copy a Bolt URL from "
             "neo4j-launcher Application Log into Project Settings > "
-            "Advanced > Environment Variables, e.g. "
-            "bolt://cml-neo4j-<hash>.mlx-user-<id>:7687"
+            "Advanced > Environment Variables. Use Internal Bolt "
+            "(bolt://cml-neo4j-<hash>.mlx-user-<id>:7687) only when this AMP "
+            "runs in the same project as neo4j-launcher; otherwise use "
+            "External Bolt (bolt://<lb-id>.<region>.elb.amazonaws.com:7687)."
         )
     if ".cloudera.site" in lowered:
+        # `*.cloudera.site` is the browser proxy (HTTP), not a Bolt endpoint —
+        # connecting to it always fails, so reject early with a clear message.
         raise ValueError(
             "NEO4J_URI is a neo4j-launcher browser URL (*.cloudera.site), not Bolt. "
-            "Copy Internal Bolt from neo4j-launcher Application Log into Project Settings."
-        )
-    if ".elb.amazonaws.com" in lowered or ".amazonaws.com" in lowered:
-        raise ValueError(
-            "NEO4J_URI is an external ELB URL. Copy Internal Bolt from "
-            "neo4j-launcher Application Log into Project Settings."
+            "Use Internal Bolt (same project) or External Bolt (cross project) "
+            "from the neo4j-launcher Application Log."
         )
 
 

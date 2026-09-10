@@ -5,16 +5,27 @@ from __future__ import annotations
 import os
 from urllib.parse import urlparse
 
-_EXTERNAL_HOST_MARKERS = (
-    ".cloudera.site",
-    ".elb.amazonaws.com",
-    ".amazonaws.com",
-)
+# CML neo4j-launcher exposes several URLs. Only the ones that are actually Bolt
+# endpoints are useful here:
+#   - Internal Bolt (`cml-neo4j-<hash>.mlx-user-<id>`) works only from within the
+#     same AMP project's Kubernetes namespace.
+#   - External Bolt via AWS ELB (`*.elb.amazonaws.com`) is reachable across
+#     namespaces, so it is the only option when the analysis AMP runs in a
+#     different project from neo4j-launcher.
+#   - The `*.cloudera.site` URL is the *browser* proxy and is NOT a Bolt
+#     endpoint; connecting to it will always fail.
+_BROWSER_HOST_MARKERS = (".cloudera.site",)
+_EXTERNAL_BOLT_HOST_MARKERS = (".elb.amazonaws.com", ".amazonaws.com")
 
 
-def _is_external_neo4j_host(host: str) -> bool:
+def _is_browser_neo4j_host(host: str) -> bool:
     lowered = host.lower()
-    return any(marker in lowered for marker in _EXTERNAL_HOST_MARKERS)
+    return any(marker in lowered for marker in _BROWSER_HOST_MARKERS)
+
+
+def _is_external_bolt_neo4j_host(host: str) -> bool:
+    lowered = host.lower()
+    return any(marker in lowered for marker in _EXTERNAL_BOLT_HOST_MARKERS)
 
 
 def _is_cml_internal_neo4j_host(host: str) -> bool:
@@ -73,11 +84,20 @@ def iter_neo4j_connection_uris(
         # Fallback: the bare Kubernetes Service name inside the same project.
         # Helps when the pod-hash portion of the Internal Bolt URI is stale
         # (neo4j-launcher restarted since the URI was copied) but the Service
-        # itself is still reachable.
+        # itself is still reachable. Only useful if this AMP shares a namespace
+        # with neo4j-launcher; cross-AMP callers must use the External Bolt URL.
         add_host("bolt", "neo4j-launcher")
         return ordered
 
-    if host and _is_external_neo4j_host(host):
+    if host and _is_browser_neo4j_host(host):
+        # `*.cloudera.site` is neo4j-launcher's browser proxy, not a Bolt
+        # endpoint. Nothing to try.
+        return ordered
+
+    if host and _is_external_bolt_neo4j_host(host):
+        # ELB Bolt endpoint. Use it as-is: it is reachable from every namespace
+        # in the workspace, so no in-cluster fallback applies.
+        add_host(scheme, host)
         return ordered
 
     if host:
@@ -102,9 +122,12 @@ def format_neo4j_connection_help(configured_uri: str, errors: list[str]) -> str:
         f"Attempts:\n{attempts}\n"
         "CML neo4j-launcher checklist:\n"
         "  1. neo4j-launcher application is Running (Applications page)\n"
-        "  2. Copy Internal Bolt from neo4j-launcher Application Log into NEO4J_URI\n"
-        f"     Example: {internal_example}\n"
-        "     Do not use browser URL (*.cloudera.site) or ELB URLs\n"
+        "  2. Copy a Bolt URL from neo4j-launcher Application Log into NEO4J_URI\n"
+        "     - Same AMP project as neo4j-launcher: Internal Bolt\n"
+        f"       Example: {internal_example}\n"
+        "     - Different AMP project (cross-namespace): External Bolt (ELB)\n"
+        "       Example: bolt://<lb-id>.<region>.elb.amazonaws.com:7687\n"
+        "     Do not use browser URL (*.cloudera.site) — that is not a Bolt endpoint\n"
         "  3. NEO4J_PASSWORD is the password from neo4j-launcher startup\n"
         "  4. NEO4J_USERNAME is usually neo4j"
     )

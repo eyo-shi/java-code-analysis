@@ -86,6 +86,12 @@ class SeedProjectEnvTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_neo4j_uri_for_ingest(PROJECT_ENV_SEEDS["NEO4J_URI"])
 
+    def test_validate_accepts_elb_bolt_url(self) -> None:
+        """Cross-AMP callers reach neo4j-launcher via the ELB Bolt endpoint."""
+        validate_neo4j_uri_for_ingest(
+            "bolt://a7917e0593f6b42f9adcb9b7e8acf39d-1746816803.us-east-2.elb.amazonaws.com:7687"
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
